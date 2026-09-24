@@ -12,6 +12,42 @@ CORS_ALLOWED_ORIGINS = [
     origin.strip() for origin in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if origin.strip()
 ]
 
+# Database configuration for PostgreSQL with PostGIS in production
+DATABASES = {
+    'default': {
+        'ENGINE': os.getenv('DB_ENGINE', 'django.contrib.gis.db.backends.postgis'),
+        'NAME': os.getenv('DB_NAME', os.getenv('POSTGRES_DB', 'porchlight')),
+        'USER': os.getenv('DB_USER', os.getenv('POSTGRES_USER', 'porchlight')),
+        'PASSWORD': os.getenv('DB_PASSWORD', os.getenv('POSTGRES_PASSWORD', '')),
+        'HOST': os.getenv('DB_HOST', os.getenv('POSTGRES_HOST', 'localhost')),
+        'PORT': os.getenv('DB_PORT', os.getenv('POSTGRES_PORT', '5432')),
+    }
+}
+
+# Support DATABASE_URL in production if provided
+database_url = os.getenv('DATABASE_URL')
+if database_url:
+    import urllib.parse
+    parsed = urllib.parse.urlparse(database_url)
+    engine = os.getenv(
+        'DB_ENGINE',
+        'django.contrib.gis.db.backends.postgis'
+        if 'postgis' in parsed.scheme or 'postgres' in parsed.scheme
+        else parsed.scheme
+    )
+    DATABASES['default'] = {
+        'ENGINE': engine,
+        'NAME': parsed.path.lstrip('/'),
+        'USER': parsed.username or '',
+        'PASSWORD': parsed.password or '',
+        'HOST': parsed.hostname or '',
+        'PORT': str(parsed.port or 5432),
+    }
+
+# Enable GeoDjango in production
+if 'django.contrib.gis' not in INSTALLED_APPS:
+    INSTALLED_APPS = list(INSTALLED_APPS) + ['django.contrib.gis']
+
 # Security settings
 SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'True').lower() == 'true'
 SESSION_COOKIE_SECURE = True

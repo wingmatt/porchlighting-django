@@ -81,6 +81,7 @@ class PorchlightSerializer(serializers.ModelSerializer):
     user_role = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
     is_active = serializers.BooleanField(read_only=True)
+    coordinates = serializers.SerializerMethodField()
 
     class Meta:
         model = Porchlight
@@ -92,6 +93,7 @@ class PorchlightSerializer(serializers.ModelSerializer):
             'active_until',
             'is_active',
             'location',
+            'coordinates',
             'description',
             'owner',
             'owner_email',
@@ -104,7 +106,10 @@ class PorchlightSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'owner', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner', 'is_active', 'coordinates', 'created_at', 'updated_at']
+
+    def get_coordinates(self, obj) -> dict | None:
+        return obj.coordinates
 
     def get_user_role(self, obj) -> str:
         request = self.context.get('request')

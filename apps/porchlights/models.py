@@ -27,7 +27,11 @@ class Porchlight(models.Model):
     type = models.CharField(max_length=100, default='default', help_text=_('Type of beacon/porchlight'))
     active_duration = models.IntegerField(default=4, help_text=_('Active duration in hours'))
     active_until = models.DateTimeField(null=True, blank=True, help_text=_('Active expiration timestamp'))
-    location = models.TextField(null=True, blank=True, help_text=_('Optional location or coordinates'))
+    location = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=_('Geocoordinates (e.g. {"latitude": float, "longitude": float}) or location data'),
+    )
     description = models.TextField(blank=True, help_text=_('Optional location description'))
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -48,6 +52,39 @@ class Porchlight(models.Model):
 
     def __str__(self):
         return f"{self.name} ({'ON' if self.is_on else 'OFF'})"
+
+    @property
+    def coordinates(self) -> dict | None:
+        """Extract normalized geocoordinates {latitude: float, longitude: float} if available."""
+        if not self.location:
+            return None
+        if isinstance(self.location, dict):
+            lat = self.location.get('latitude') if 'latitude' in self.location else self.location.get('lat')
+            lng = (
+                self.location.get('longitude')
+                if 'longitude' in self.location
+                else (self.location.get('lng') if 'lng' in self.location else self.location.get('lon'))
+            )
+            if lat is not None and lng is not None:
+                try:
+                    return {'latitude': float(lat), 'longitude': float(lng)}
+                except (ValueError, TypeError):
+                    pass
+            # GeoJSON Point format
+            coords = self.location.get('coordinates')
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                try:
+                    return {'longitude': float(coords[0]), 'latitude': float(coords[1])}
+                except (ValueError, TypeError):
+                    pass
+        elif isinstance(self.location, str):
+            parts = [p.strip() for p in self.location.split(',') if p.strip()]
+            if len(parts) == 2:
+                try:
+                    return {'latitude': float(parts[0]), 'longitude': float(parts[1])}
+                except (ValueError, TypeError):
+                    pass
+        return None
 
     def is_active(self) -> bool:
         """Check if beacon/porchlight is currently active based on active_until."""
@@ -74,7 +111,8 @@ class Porchlight(models.Model):
             'active_duration': self.active_duration,
             'active_until': self.active_until.isoformat() if self.active_until else None,
             'is_active': self.is_active(),
-            'location': self.location or '',
+            'location': self.location or None,
+            'coordinates': self.coordinates,
             'is_on': self.is_on,
             'brightness': self.brightness,
             'color': self.color,
