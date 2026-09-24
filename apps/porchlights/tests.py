@@ -193,3 +193,68 @@ class PorchlightAndPermissionTests(TestCase):
         )
         self.assertEqual(guest_res.status_code, status.HTTP_200_OK)
         self.assertIn('firebase_token', guest_res.data)
+
+    def test_beacon_compatibility_endpoints(self):
+        self.client.force_authenticate(user=self.owner)
+        # Test listing beacons
+        url = reverse('porchlights:beacon-list-create')
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+
+        # Test beacon detail
+        detail_url = reverse('porchlights:beacon-detail', kwargs={'pk': self.porchlight.id})
+        res = self.client.get(detail_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['name'], 'Front Porch Light')
+
+        # Test beacon control
+        control_url = reverse('porchlights:beacon-control', kwargs={'pk': self.porchlight.id})
+        res = self.client.post(control_url, {'action': 'turn_on'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_sqids_invitation_encoding_and_lookup(self):
+        invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.GUEST,
+            is_guest=True,
+        )
+        sqid = invitation.sqid
+        self.assertIsNotNone(sqid)
+        found_invitation = Invitation.get_by_sqid(sqid)
+        self.assertEqual(found_invitation.id, invitation.id)
+
+        # Test validate endpoint with sqid
+        validate_url = reverse('porchlights:invitation-validate', kwargs={'code': sqid})
+        res = self.client.get(validate_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['sqid'], sqid)
+
+    def test_rsvps_and_permissions_endpoints(self):
+        self.client.force_authenticate(user=self.member)
+        # Create RSVP
+        rsvp_url = reverse('porchlights:rsvp-list-create')
+        res = self.client.post(
+            rsvp_url,
+            {'porchlight': str(self.porchlight.id), 'type': 'yes'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['type'], 'yes')
+
+        # List RSVPs for beacon
+        beacon_rsvps_url = reverse('porchlights:beacon-rsvps', kwargs={'porchlight_pk': self.porchlight.id})
+        res = self.client.get(beacon_rsvps_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+
+        # Create Permission as owner
+        self.client.force_authenticate(user=self.owner)
+        perm_url = reverse('porchlights:permission-list-create')
+        res = self.client.post(
+            perm_url,
+            {'porchlight': str(self.porchlight.id), 'user': self.member.id, 'role': 'edit'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
