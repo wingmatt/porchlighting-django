@@ -1,6 +1,7 @@
 """Serializers for accounts authentication and user profiles."""
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers
+from .models import FCMDeviceToken
 
 User = get_user_model()
 
@@ -66,3 +67,21 @@ class LoginSerializer(serializers.Serializer):
 
         attrs['user'] = user
         return attrs
+
+
+class FCMDeviceTokenSerializer(serializers.ModelSerializer):
+    """Serializer for registering or updating FCM device tokens."""
+
+    class Meta:
+        model = FCMDeviceToken
+        fields = ['id', 'registration_token', 'device_id', 'device_type', 'guest_token', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'registration_token': {'validators': []},  # Allow update_or_create on existing registration_token
+        }
+
+
+class FCMDeviceTokenUnregisterSerializer(serializers.Serializer):
+    """Serializer for unregistering an FCM device token."""
+
+    registration_token = serializers.CharField(max_length=255)

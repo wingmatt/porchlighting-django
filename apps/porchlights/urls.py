@@ -1,14 +1,21 @@
-"""URL configuration for Porchlights app."""
+"""URL configuration for Porchlights and Beacons app."""
 from django.urls import path
 from .views import (
     AcceptInvitationView,
+    BeaconControlView,
+    BeaconDetailView,
+    BeaconListCreateView,
     GuestAccessView,
     InvitationDetailView,
     InvitationListCreateView,
+    PermissionListCreateView,
     PorchlightControlView,
     PorchlightDetailView,
     PorchlightListCreateView,
+    PorchlightMemberDetailView,
     PorchlightMemberListView,
+    RsvpDetailView,
+    RsvpListCreateView,
     ValidateInvitationView,
 )
 
@@ -20,6 +27,24 @@ urlpatterns = [
     path('porchlights/<uuid:pk>/', PorchlightDetailView.as_view(), name='porchlight-detail'),
     path('porchlights/<uuid:pk>/control/', PorchlightControlView.as_view(), name='porchlight-control'),
     path('porchlights/<uuid:pk>/members/', PorchlightMemberListView.as_view(), name='porchlight-members'),
+    path('porchlights/<uuid:porchlight_pk>/members/<uuid:pk>/', PorchlightMemberDetailView.as_view(), name='porchlight-member-detail'),
+    path('porchlights/<uuid:porchlight_pk>/permissions/', PermissionListCreateView.as_view(), name='porchlight-permissions'),
+    path('porchlights/<uuid:porchlight_pk>/rsvps/', RsvpListCreateView.as_view(), name='porchlight-rsvps'),
+
+    # Beacon endpoints (Laravel compatibility routes)
+    path('beacons/', BeaconListCreateView.as_view(), name='beacon-list-create'),
+    path('beacons/<uuid:pk>/', BeaconDetailView.as_view(), name='beacon-detail'),
+    path('beacons/<uuid:pk>/control/', BeaconControlView.as_view(), name='beacon-control'),
+    path('beacons/<uuid:pk>/members/', PorchlightMemberListView.as_view(), name='beacon-members'),
+    path('beacons/<uuid:porchlight_pk>/permissions/', PermissionListCreateView.as_view(), name='beacon-permissions'),
+    path('beacons/<uuid:porchlight_pk>/rsvps/', RsvpListCreateView.as_view(), name='beacon-rsvps'),
+
+    # General RSVP endpoints
+    path('rsvps/', RsvpListCreateView.as_view(), name='rsvp-list-create'),
+    path('rsvps/<uuid:pk>/', RsvpDetailView.as_view(), name='rsvp-detail'),
+
+    # General Permission endpoints
+    path('permissions/', PermissionListCreateView.as_view(), name='permission-list-create'),
 
     # Invitation endpoints
     path('invitations/', InvitationListCreateView.as_view(), name='invitation-list-create'),

@@ -1,9 +1,17 @@
-"""Serializers for Porchlights, Members, Invitations, and Guest Access."""
+"""Serializers for Porchlights, Members, Invitations, Permissions, RSVPs, and Guest Access."""
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import GuestSession, Invitation, Porchlight, PorchlightMember, PorchlightRole
+from .models import (
+    GuestSession,
+    Invitation,
+    Permission,
+    Porchlight,
+    PorchlightMember,
+    PorchlightRole,
+    Rsvp,
+)
 
 User = get_user_model()
 
@@ -21,18 +29,69 @@ class PorchlightMemberSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 
+class PermissionSerializer(serializers.ModelSerializer):
+    """Serializer for permission grants matching Laravel Permission model."""
+
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    beacon_id = serializers.UUIDField(source='porchlight.id', read_only=True)
+
+    class Meta:
+        model = Permission
+        fields = [
+            'id',
+            'porchlight',
+            'beacon_id',
+            'user',
+            'user_email',
+            'guest_id',
+            'role',
+            'from_invitation',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class RsvpSerializer(serializers.ModelSerializer):
+    """Serializer for RSVP responses."""
+
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    beacon_id = serializers.UUIDField(source='porchlight.id', read_only=True)
+
+    class Meta:
+        model = Rsvp
+        fields = [
+            'id',
+            'porchlight',
+            'beacon_id',
+            'user',
+            'user_email',
+            'guest_id',
+            'type',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
 class PorchlightSerializer(serializers.ModelSerializer):
-    """Serializer for Porchlight list and general view."""
+    """Serializer for Porchlight/Beacon list and general view."""
 
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
     user_role = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
+    is_active = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Porchlight
         fields = [
             'id',
             'name',
+            'type',
+            'active_duration',
+            'active_until',
+            'is_active',
+            'location',
             'description',
             'owner',
             'owner_email',
@@ -45,7 +104,7 @@ class PorchlightSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'owner', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner', 'is_active', 'created_at', 'updated_at']
 
     def get_user_role(self, obj) -> str:
         request = self.context.get('request')
@@ -57,12 +116,22 @@ class PorchlightSerializer(serializers.ModelSerializer):
             member = PorchlightMember.objects.filter(porchlight=obj, user=request.user).first()
             if member:
                 return member.role
+            perm = Permission.objects.filter(porchlight=obj, user=request.user).first()
+            if perm:
+                return perm.role.upper()
         # Check guest token
-        guest_token = request.headers.get('X-Guest-Token') or request.query_params.get('guest_token')
+        guest_token = (
+            getattr(request, 'guest_token', None)
+            or request.headers.get('X-Guest-Token')
+            or request.query_params.get('guest_token')
+        )
         if guest_token:
             session = GuestSession.objects.filter(guest_token=guest_token, invitation__porchlight=obj).first()
             if session and session.is_valid():
                 return session.invitation.role
+            perm = Permission.objects.filter(porchlight=obj, guest_id=guest_token).first()
+            if perm:
+                return perm.role.upper()
         return 'GUEST'
 
     def get_is_owner(self, obj) -> bool:
@@ -79,13 +148,19 @@ class PorchlightSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+# BeaconSerializer alias for Laravel compatibility
+BeaconSerializer = PorchlightSerializer
+
+
 class PorchlightDetailSerializer(PorchlightSerializer):
-    """Detailed Porchlight serializer with members and invitations for managers."""
+    """Detailed Porchlight serializer with members, permissions, and RSVPs."""
 
     members = PorchlightMemberSerializer(source='memberships', many=True, read_only=True)
+    permissions = PermissionSerializer(source='permission_grants', many=True, read_only=True)
+    rsvps = RsvpSerializer(many=True, read_only=True)
 
     class Meta(PorchlightSerializer.Meta):
-        fields = PorchlightSerializer.Meta.fields + ['members']
+        fields = PorchlightSerializer.Meta.fields + ['members', 'permissions', 'rsvps']
 
 
 class PorchlightControlSerializer(serializers.ModelSerializer):
@@ -93,47 +168,86 @@ class PorchlightControlSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Porchlight
-        fields = ['is_on', 'brightness', 'color', 'status_message']
+        fields = ['is_on', 'brightness', 'color', 'status_message', 'active_until', 'active_duration', 'location']
 
 
 class InvitationSerializer(serializers.ModelSerializer):
-    """Serializer for Porchlight Invitations."""
+    """Serializer for Porchlight/Beacon Invitations with Sqids support."""
 
     porchlight_name = serializers.CharField(source='porchlight.name', read_only=True)
+    beacon_id = serializers.UUIDField(source='porchlight.id', read_only=True)
     invited_by_email = serializers.EmailField(source='invited_by.email', read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
     is_valid = serializers.BooleanField(read_only=True)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
+    sqid = serializers.CharField(read_only=True)
+    role_granted = serializers.CharField(read_only=True)
+    active_until = serializers.DateTimeField(source='expires_at', read_only=True)
+
+    class Meta:
+        model = Invitation
+        fields = [
+            'id',
+            'numeric_id',
+            'code',
+            'sqid',
+            'porchlight',
+            'beacon_id',
+            'porchlight_name',
+            'invited_by',
+            'invited_by_email',
+            'user',
+            'user_email',
+            'invited_email',
+            'guest_token',
+            'role',
+            'role_display',
+            'role_granted',
+            'is_guest',
+            'max_uses',
+            'uses_count',
+            'expires_at',
+            'active_until',
+            'is_active',
+            'is_valid',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'numeric_id', 'code', 'sqid', 'invited_by', 'uses_count', 'created_at', 'updated_at']
+
+
+class InvitationCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating an invitation."""
+
+    sqid = serializers.CharField(read_only=True)
+    beacon = serializers.PrimaryKeyRelatedField(
+        queryset=Porchlight.objects.all(),
+        source='porchlight',
+        required=False,
+    )
+    role_granted = serializers.CharField(required=False, write_only=True)
+    active_until = serializers.DateTimeField(source='expires_at', required=False)
 
     class Meta:
         model = Invitation
         fields = [
             'id',
             'code',
+            'sqid',
             'porchlight',
-            'porchlight_name',
-            'invited_by',
-            'invited_by_email',
+            'beacon',
+            'user',
             'invited_email',
+            'guest_token',
             'role',
-            'role_display',
+            'role_granted',
             'is_guest',
             'max_uses',
-            'uses_count',
             'expires_at',
-            'is_active',
-            'is_valid',
+            'active_until',
             'created_at',
         ]
-        read_only_fields = ['id', 'code', 'invited_by', 'uses_count', 'created_at']
-
-
-class InvitationCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating an invitation."""
-
-    class Meta:
-        model = Invitation
-        fields = ['id', 'code', 'porchlight', 'invited_email', 'role', 'is_guest', 'max_uses', 'expires_at', 'created_at']
-        read_only_fields = ['id', 'code', 'created_at']
+        read_only_fields = ['id', 'code', 'sqid', 'created_at']
 
     def validate_porchlight(self, value):
         request = self.context.get('request')
@@ -154,8 +268,14 @@ class InvitationCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get('request')
-        validated_data['invited_by'] = request.user
-        return super().create(validated_data)
+        if request and request.user.is_authenticated:
+            validated_data['invited_by'] = request.user
+        role_granted = validated_data.pop('role_granted', None)
+        instance = super().create(validated_data)
+        if role_granted:
+            instance.role_granted = role_granted
+            instance.save(update_fields=['role'])
+        return instance
 
 
 class AcceptInvitationSerializer(serializers.Serializer):
@@ -164,9 +284,8 @@ class AcceptInvitationSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=64)
 
     def validate_code(self, value):
-        try:
-            invitation = Invitation.objects.select_related('porchlight', 'invited_by').get(code=value)
-        except Invitation.DoesNotExist:
+        invitation = Invitation.get_by_sqid(value)
+        if not invitation:
             raise serializers.ValidationError('Invalid invitation code.')
 
         if not invitation.is_valid():
@@ -182,9 +301,8 @@ class GuestAccessSerializer(serializers.Serializer):
     guest_name = serializers.CharField(max_length=100, required=False, default='Guest')
 
     def validate_invitation_code(self, value):
-        try:
-            invitation = Invitation.objects.select_related('porchlight').get(code=value)
-        except Invitation.DoesNotExist:
+        invitation = Invitation.get_by_sqid(value)
+        if not invitation:
             raise serializers.ValidationError('Invalid invitation code.')
 
         if not invitation.is_valid():

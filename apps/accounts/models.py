@@ -1,6 +1,8 @@
 """Custom User model implementing email-only authentication with AbstractBaseUser."""
+import uuid
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -83,3 +85,48 @@ class User(AbstractBaseUser, PermissionsMixin):
         """Return the user's full name or email if name is not set."""
         full_name = f"{self.first_name} {self.last_name}".strip()
         return full_name if full_name else self.email
+
+    @property
+    def owned_beacons(self):
+        """Alias for owned_porchlights to match Laravel beacon conventions."""
+        return self.owned_porchlights
+
+
+class FCMDeviceToken(models.Model):
+    """FCM Device Registration Token for push notifications."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='fcm_devices',
+        null=True,
+        blank=True,
+    )
+    guest_token = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text=_('Associated guest session token if unauthenticated guest'),
+    )
+    registration_token = models.CharField(
+        max_length=255,
+        unique=True,
+        db_index=True,
+        help_text=_('Firebase Cloud Messaging device token'),
+    )
+    device_id = models.CharField(max_length=255, blank=True, help_text=_('Unique hardware/app device ID'))
+    device_type = models.CharField(max_length=50, blank=True, default='android', help_text=_('ios, android, web, etc.'))
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _('FCM device token')
+        verbose_name_plural = _('FCM device tokens')
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        target = self.user.email if self.user else f"Guest ({self.guest_token[:8] if self.guest_token else 'unknown'})"
+        return f"FCM Token for {target} - {self.device_type}"

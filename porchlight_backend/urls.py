@@ -19,17 +19,38 @@ def api_root_view(request):
                     'login': '/api/auth/login/',
                     'logout': '/api/auth/logout/',
                     'me': '/api/auth/me/',
+                    'firebase_token': '/api/auth/firebase-token/',
+                    'fcm_register': '/api/auth/fcm/register/',
+                    'fcm_unregister': '/api/auth/fcm/unregister/',
                 },
                 'porchlights': {
                     'list_create': '/api/porchlights/',
                     'detail': '/api/porchlights/<id>/',
                     'control': '/api/porchlights/<id>/control/',
                     'members': '/api/porchlights/<id>/members/',
+                    'permissions': '/api/porchlights/<id>/permissions/',
+                    'rsvps': '/api/porchlights/<id>/rsvps/',
+                },
+                'beacons': {
+                    'list_create': '/api/beacons/',
+                    'detail': '/api/beacons/<id>/',
+                    'control': '/api/beacons/<id>/control/',
+                    'members': '/api/beacons/<id>/members/',
+                    'permissions': '/api/beacons/<id>/permissions/',
+                    'rsvps': '/api/beacons/<id>/rsvps/',
                 },
                 'invitations': {
                     'list_create': '/api/invitations/',
+                    'detail': '/api/invitations/<id>/',
                     'validate': '/api/invitations/validate/<code>/',
                     'accept': '/api/invitations/accept/',
+                },
+                'rsvps': {
+                    'list_create': '/api/rsvps/',
+                    'detail': '/api/rsvps/<id>/',
+                },
+                'permissions': {
+                    'list_create': '/api/permissions/',
                 },
                 'guest': {
                     'access': '/api/guest/access/',

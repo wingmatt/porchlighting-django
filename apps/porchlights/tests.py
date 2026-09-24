@@ -8,6 +8,12 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from .models import GuestSession, Invitation, Porchlight, PorchlightMember, PorchlightRole
+from .tasks import (
+    delete_porchlight_from_firebase_task,
+    send_porchlight_fcm_update_task,
+    sync_porchlight_to_firebase_task,
+)
+from apps.accounts.models import FCMDeviceToken
 
 User = get_user_model()
 
@@ -128,3 +134,62 @@ class PorchlightAndPermissionTests(TestCase):
             format='json',
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_firebase_payload_contains_permissions(self):
+        PorchlightMember.objects.create(
+            porchlight=self.porchlight,
+            user=self.member,
+            role=PorchlightRole.MEMBER,
+        )
+        invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.GUEST,
+            is_guest=True,
+        )
+        session = GuestSession.objects.create(
+            invitation=invitation,
+            guest_name='Guest1',
+        )
+
+        payload = self.porchlight.get_firebase_payload()
+        self.assertEqual(payload['id'], str(self.porchlight.id))
+        self.assertIn(str(self.owner.id), payload['allowed_users'])
+        self.assertIn(str(self.member.id), payload['allowed_users'])
+        self.assertIn(session.guest_token, payload['allowed_guest_tokens'])
+
+    def test_celery_tasks_execution(self):
+        # 1. Register device token for owner
+        FCMDeviceToken.objects.create(
+            user=self.owner,
+            registration_token='device-token-owner-123',
+            is_active=True,
+        )
+
+        # 2. Test sync task
+        sync_result = sync_porchlight_to_firebase_task(str(self.porchlight.id), notify_fcm=False)
+        self.assertIsInstance(sync_result, bool)
+
+        # 3. Test fcm update task
+        fcm_result = send_porchlight_fcm_update_task(str(self.porchlight.id))
+        self.assertIsInstance(fcm_result, dict)
+
+        # 4. Test delete task
+        delete_result = delete_porchlight_from_firebase_task(str(self.porchlight.id))
+        self.assertIsInstance(delete_result, bool)
+
+    def test_guest_access_returns_firebase_token_field(self):
+        invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.GUEST,
+            is_guest=True,
+        )
+        guest_access_url = reverse('porchlights:guest-access')
+        guest_res = self.client.post(
+            guest_access_url,
+            {'invitation_code': invitation.code, 'guest_name': 'Party Guest'},
+            format='json',
+        )
+        self.assertEqual(guest_res.status_code, status.HTTP_200_OK)
+        self.assertIn('firebase_token', guest_res.data)

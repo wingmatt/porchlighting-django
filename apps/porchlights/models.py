@@ -1,11 +1,14 @@
-"""Models for Porchlights, Memberships, Invitations, and Guest Access."""
+"""Models for Porchlights, Beacons, Memberships, Invitations, Permissions, and RSVPs."""
 import secrets
 import uuid
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from sqids import Sqids
 from apps.core.firebase import sync_porchlight_to_firebase
+
+sqids = Sqids(min_length=8)
 
 
 class PorchlightRole(models.TextChoices):
@@ -17,11 +20,15 @@ class PorchlightRole(models.TextChoices):
 
 
 class Porchlight(models.Model):
-    """Porchlight device model with state, configuration, and owner."""
+    """Porchlight / Beacon device model with state, configuration, and owner."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=200, help_text=_('Friendly name of the porchlight'))
-    description = models.TextField(blank=True, help_text=_('Optional location or description'))
+    name = models.CharField(max_length=255, help_text=_('Friendly name of the porchlight or beacon'))
+    type = models.CharField(max_length=100, default='default', help_text=_('Type of beacon/porchlight'))
+    active_duration = models.IntegerField(default=4, help_text=_('Active duration in hours'))
+    active_until = models.DateTimeField(null=True, blank=True, help_text=_('Active expiration timestamp'))
+    location = models.TextField(null=True, blank=True, help_text=_('Optional location or coordinates'))
+    description = models.TextField(blank=True, help_text=_('Optional location description'))
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -42,16 +49,39 @@ class Porchlight(models.Model):
     def __str__(self):
         return f"{self.name} ({'ON' if self.is_on else 'OFF'})"
 
+    def is_active(self) -> bool:
+        """Check if beacon/porchlight is currently active based on active_until."""
+        return bool(self.active_until and self.active_until > timezone.now())
+
     def get_firebase_payload(self) -> dict:
         """Serialize porchlight state for Firebase sync."""
+        member_ids = list(self.memberships.values_list('user_id', flat=True))
+        perm_user_ids = list(self.permission_grants.filter(user__isnull=False).values_list('user_id', flat=True))
+        allowed_users = list(set([str(self.owner_id)] + [str(uid) for uid in member_ids] + [str(uid) for uid in perm_user_ids]))
+
+        guest_tokens = list(
+            self.invitations.filter(is_guest=True, guest_sessions__isnull=False)
+            .values_list('guest_sessions__guest_token', flat=True)
+            .distinct()
+        )
+        perm_guest_ids = list(self.permission_grants.filter(guest_id__isnull=False).values_list('guest_id', flat=True))
+        allowed_guests = list(set([str(gt) for gt in guest_tokens if gt] + [str(gid) for gid in perm_guest_ids if gid]))
+
         return {
             'id': str(self.id),
             'name': self.name,
+            'type': self.type,
+            'active_duration': self.active_duration,
+            'active_until': self.active_until.isoformat() if self.active_until else None,
+            'is_active': self.is_active(),
+            'location': self.location or '',
             'is_on': self.is_on,
             'brightness': self.brightness,
             'color': self.color,
             'status_message': self.status_message,
-            'owner_id': self.owner_id,
+            'owner_id': str(self.owner_id),
+            'allowed_users': allowed_users,
+            'allowed_guest_tokens': allowed_guests,
             'updated_at': self.updated_at.isoformat() if self.updated_at else timezone.now().isoformat(),
         }
 
@@ -59,10 +89,9 @@ class Porchlight(models.Model):
         """Push current state to Firebase Firestore / Realtime DB."""
         return sync_porchlight_to_firebase(str(self.id), self.get_firebase_payload())
 
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        # Automatically sync state to Firebase on save
-        self.sync_to_firebase()
+
+# Alias Beacon to Porchlight for Laravel compatibility
+Beacon = Porchlight
 
 
 class PorchlightMember(models.Model):
@@ -101,9 +130,10 @@ def generate_invitation_code():
 
 
 class Invitation(models.Model):
-    """Invitations granting authenticated or guest access to a Porchlight."""
+    """Invitations granting authenticated or guest access to a Porchlight/Beacon."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    numeric_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
     code = models.CharField(
         max_length=64,
         unique=True,
@@ -119,12 +149,22 @@ class Invitation(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='created_invitations',
+        null=True,
+        blank=True,
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='received_invitations',
     )
     invited_email = models.EmailField(
         blank=True,
         null=True,
         help_text=_('Optional target email address for recipient'),
     )
+    guest_token = models.CharField(max_length=255, null=True, blank=True)
     role = models.CharField(
         max_length=20,
         choices=PorchlightRole.choices,
@@ -142,6 +182,7 @@ class Invitation(models.Model):
     expires_at = models.DateTimeField(blank=True, null=True, help_text=_('Expiration timestamp'))
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -150,6 +191,75 @@ class Invitation(models.Model):
 
     def __str__(self):
         return f"Invitation for {self.porchlight.name} ({self.role}) - Code: {self.code[:8]}..."
+
+    def save(self, *args, **kwargs):
+        if self.numeric_id is None:
+            max_num = Invitation.objects.aggregate(models.Max('numeric_id'))['numeric_id__max']
+            self.numeric_id = (max_num or 0) + 1
+        super().save(*args, **kwargs)
+
+    @property
+    def beacon(self):
+        return self.porchlight
+
+    @beacon.setter
+    def beacon(self, value):
+        self.porchlight = value
+
+    @property
+    def active_until(self):
+        return self.expires_at
+
+    @active_until.setter
+    def active_until(self, value):
+        self.expires_at = value
+
+    @property
+    def role_granted(self) -> str:
+        role_map = {
+            PorchlightRole.OWNER: 'owner',
+            PorchlightRole.ADMIN: 'share',
+            PorchlightRole.MEMBER: 'edit',
+            PorchlightRole.GUEST: 'view',
+        }
+        return role_map.get(self.role, str(self.role).lower())
+
+    @role_granted.setter
+    def role_granted(self, value: str):
+        if not value:
+            self.role = PorchlightRole.GUEST
+            return
+        val = value.lower()
+        if val == 'owner':
+            self.role = PorchlightRole.OWNER
+        elif val in ('edit', 'admin'):
+            self.role = PorchlightRole.MEMBER
+        elif val == 'share':
+            self.role = PorchlightRole.ADMIN
+        elif val == 'view':
+            self.role = PorchlightRole.GUEST
+        else:
+            self.role = PorchlightRole.GUEST
+
+    @property
+    def sqid(self) -> str:
+        """URL-safe Sqids encoding for invitation ID."""
+        num = self.numeric_id
+        if num is None:
+            num = (self.id.int % 2147483647) if isinstance(self.id, uuid.UUID) else int(self.id)
+        return sqids.encode([num])
+
+    @classmethod
+    def get_by_sqid(cls, sqid_str: str):
+        """Find invitation by Sqid representation or invitation code."""
+        if not sqid_str:
+            return None
+        numbers = sqids.decode(sqid_str)
+        if numbers:
+            inv = cls.objects.filter(numeric_id=numbers[0]).first()
+            if inv:
+                return inv
+        return cls.objects.filter(code=sqid_str).first()
 
     @property
     def is_expired(self) -> bool:
@@ -173,6 +283,91 @@ class Invitation(models.Model):
         if self.max_uses > 0 and self.uses_count >= self.max_uses:
             self.is_active = False
         self.save()
+
+
+class Permission(models.Model):
+    """Permission grant matching Laravel structure."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    porchlight = models.ForeignKey(
+        Porchlight,
+        related_name='permission_grants',
+        on_delete=models.CASCADE,
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name='permissions',
+        on_delete=models.CASCADE,
+    )
+    guest_id = models.CharField(max_length=255, null=True, blank=True)
+    role = models.CharField(max_length=50)  # 'owner', 'edit', 'share', 'view'
+    from_invitation = models.ForeignKey(
+        Invitation,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='permissions_granted',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = _('permission')
+        verbose_name_plural = _('permissions')
+
+    def __str__(self):
+        target = self.user.email if self.user else f"Guest ({self.guest_id})"
+        return f"Permission ({self.role}) on {self.porchlight.name} for {target}"
+
+    @property
+    def beacon(self):
+        return self.porchlight
+
+    @beacon.setter
+    def beacon(self, value):
+        self.porchlight = value
+
+
+class Rsvp(models.Model):
+    """RSVP response matching Laravel structure."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    porchlight = models.ForeignKey(
+        Porchlight,
+        related_name='rsvps',
+        on_delete=models.CASCADE,
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name='rsvps',
+        on_delete=models.CASCADE,
+    )
+    guest_id = models.CharField(max_length=255, null=True, blank=True)
+    type = models.CharField(max_length=20, null=True, blank=True)  # 'yes', 'maybe'
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = _('RSVP')
+        verbose_name_plural = _('RSVPs')
+
+    def __str__(self):
+        target = self.user.email if self.user else f"Guest ({self.guest_id})"
+        return f"RSVP ({self.type}) for {self.porchlight.name} by {target}"
+
+    @property
+    def beacon(self):
+        return self.porchlight
+
+    @beacon.setter
+    def beacon(self, value):
+        self.porchlight = value
 
 
 class GuestSession(models.Model):

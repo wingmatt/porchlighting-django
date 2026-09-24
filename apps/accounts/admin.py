@@ -2,7 +2,16 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
-from .models import User
+from .models import FCMDeviceToken, User
+
+
+@admin.register(FCMDeviceToken)
+class FCMDeviceTokenAdmin(admin.ModelAdmin):
+    """Admin configuration for FCMDeviceToken."""
+
+    list_display = ('registration_token', 'user', 'guest_token', 'device_type', 'is_active', 'updated_at')
+    list_filter = ('is_active', 'device_type', 'created_at')
+    search_fields = ('registration_token', 'device_id', 'user__email', 'guest_token')
 
 
 @admin.register(User)

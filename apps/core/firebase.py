@@ -99,3 +99,84 @@ def sync_porchlight_to_firebase(porchlight_id: str, data: dict) -> bool:
         logger.error("Failed to sync porchlight %s to Firebase: %s", porchlight_id, e)
 
     return False
+
+
+def delete_porchlight_from_firebase(porchlight_id: str) -> bool:
+    """Delete Porchlight document / node from Firebase Firestore / Realtime DB."""
+    try:
+        client = get_firestore_client()
+        if client:
+            client.collection('porchlights').document(str(porchlight_id)).delete()
+            return True
+
+        db_ref = get_realtime_db_reference(f'porchlights/{porchlight_id}')
+        if db_ref:
+            db_ref.delete()
+            return True
+    except Exception as e:
+        logger.error("Failed to delete porchlight %s from Firebase: %s", porchlight_id, e)
+
+    return False
+
+
+def create_firebase_custom_token(uid: str, additional_claims: dict | None = None) -> str | None:
+    """Mint a Firebase Custom Auth Token for a given user/guest UID and optional claims."""
+    app = get_firebase_app()
+    if not app:
+        return None
+    try:
+        from firebase_admin import auth
+        token = auth.create_custom_token(
+            str(uid),
+            developer_claims=additional_claims or None,
+            app=app,
+        )
+        if isinstance(token, bytes):
+            return token.decode('utf-8')
+        return str(token)
+    except Exception as e:
+        logger.error("Failed to mint Firebase custom token for UID %s: %s", uid, e)
+        return None
+
+
+def send_fcm_multicast(
+    tokens: list[str],
+    title: str = '',
+    body: str = '',
+    data: dict | None = None,
+) -> dict:
+    """Send FCM multicast notification to a list of device registration tokens."""
+    if not tokens:
+        return {'success_count': 0, 'failure_count': 0, 'responses': []}
+
+    app = get_firebase_app()
+    if not app:
+        return {'success_count': 0, 'failure_count': len(tokens), 'responses': []}
+
+    try:
+        from firebase_admin import messaging
+
+        str_data = {str(k): str(v) for k, v in (data or {}).items()}
+        notification = None
+        if title or body:
+            notification = messaging.Notification(title=title, body=body)
+
+        message = messaging.MulticastMessage(
+            tokens=tokens,
+            notification=notification,
+            data=str_data,
+        )
+
+        # send_each_for_multicast is preferred in firebase-admin >= 6.2
+        if hasattr(messaging, 'send_each_for_multicast'):
+            response = messaging.send_each_for_multicast(message, app=app)
+        else:
+            response = messaging.send_multicast(message, app=app)
+
+        return {
+            'success_count': response.success_count,
+            'failure_count': response.failure_count,
+        }
+    except Exception as e:
+        logger.error("Failed to send FCM multicast message: %s", e)
+        return {'success_count': 0, 'failure_count': len(tokens), 'error': str(e)}

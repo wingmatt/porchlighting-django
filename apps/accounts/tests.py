@@ -5,6 +5,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from .models import FCMDeviceToken
+
 User = get_user_model()
 
 
@@ -75,3 +77,45 @@ class AuthAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['email'], 'me@example.com')
         self.assertEqual(response.data['first_name'], 'Me')
+
+    def test_fcm_token_registration_authenticated_user(self):
+        user = User.objects.create_user(email='fcm_user@example.com', password='Password123!')
+        self.client.force_authenticate(user=user)
+        url = reverse('accounts:fcm-register')
+        payload = {
+            'registration_token': 'test-fcm-token-12345',
+            'device_id': 'device-abc',
+            'device_type': 'android',
+        }
+        res = self.client.post(url, payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(FCMDeviceToken.objects.filter(user=user, registration_token='test-fcm-token-12345').exists())
+
+    def test_fcm_token_registration_guest(self):
+        url = reverse('accounts:fcm-register')
+        payload = {
+            'registration_token': 'test-fcm-token-guest',
+            'device_id': 'device-guest',
+            'device_type': 'ios',
+            'guest_token': 'guest-token-123',
+        }
+        res = self.client.post(url, payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(FCMDeviceToken.objects.filter(guest_token='guest-token-123', registration_token='test-fcm-token-guest').exists())
+
+    def test_fcm_token_unregister(self):
+        token = FCMDeviceToken.objects.create(registration_token='token-to-delete', device_id='d1')
+        self.assertTrue(token.is_active)
+        url = reverse('accounts:fcm-unregister')
+        res = self.client.post(url, {'registration_token': 'token-to-delete'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        token.refresh_from_db()
+        self.assertFalse(token.is_active)
+
+    def test_firebase_token_endpoint(self):
+        user = User.objects.create_user(email='fbuser@example.com', password='Password123!')
+        self.client.force_authenticate(user=user)
+        url = reverse('accounts:firebase-token')
+        res = self.client.get(url)
+        # Firebase custom token generation may fail if credentials aren't present in test env or succeed if mock/dev
+        self.assertIn(res.status_code, [status.HTTP_200_OK, status.HTTP_503_SERVICE_UNAVAILABLE])
