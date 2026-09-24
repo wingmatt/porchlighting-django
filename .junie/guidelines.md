@@ -9,10 +9,14 @@ This document provides instructions and guidelines for working efficiently with 
 - **Framework**: Django (>=6.1.1) with Django REST Framework (DRF) and Firebase Admin SDK.
 - **Python Version**: Python >= 3.13.
 - **Package & Environment Manager**: `uv`.
+- **Database Architecture**:
+  - **Production**: PostgreSQL with PostGIS extension (`django.contrib.gis.db.backends.postgis` via `psycopg[binary]`). PostgreSQL is the single source of truth for all application data.
+  - **Development / Local**: Defaults to SQLite (`sqlite3`) for zero-configuration local development, with optional local PostgreSQL/PostGIS support when `USE_POSTGRES` or `DATABASE_URL` is configured.
+  - **Firebase Role**: Firebase is used strictly as a real-time broadcast/event bus to stream database mutations and beacon state updates to connected clients. All persistent data originates in and is validated by PostgreSQL.
 - **Project Structure**:
   - `apps/`: Modular Django applications.
     - `apps.accounts`: Custom user model (email-based auth), serializers, auth views.
-    - `apps.porchlights`: Porchlight domain models, views, permissions, serializers.
+    - `apps.porchlights`: Porchlight domain models, geocoordinates handling, views, permissions, serializers.
     - `apps.core`: Core utilities and Firebase integration helpers.
   - `porchlight_backend/`: Django project configuration.
     - `settings/`: Modular settings (`base.py`, `development.py`, `production.py`).
@@ -101,6 +105,9 @@ uv run python manage.py runserver
   - Key environment variables:
     - `DJANGO_SECRET_KEY`: Django secret key.
     - `DEBUG`: Boolean debug flag.
+    - `DATABASE_URL`: PostgreSQL connection URL (e.g., `postgis://user:pass@host:5432/dbname` or `postgres://...`).
+    - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`: Individual PostgreSQL connection parameters.
+    - `USE_POSTGRES`: Explicit flag to enable PostgreSQL/PostGIS in development.
     - `FIREBASE_CREDENTIALS_PATH`: Path to Firebase service account JSON credentials.
     - `FIREBASE_DATABASE_URL`: Firebase Realtime Database URL.
     - `FIREBASE_PROJECT_ID`: Firebase project ID.
@@ -113,5 +120,6 @@ uv run python manage.py runserver
 - **App Modules**: All domain apps must reside in `apps/<app_name>` and be registered in `INSTALLED_APPS` as `'apps.<app_name>'`.
 - **Imports**: Use absolute imports referencing `apps.<app_name>...` or `porchlight_backend...`.
 - **Custom User Model**: The project uses `AUTH_USER_MODEL = 'accounts.User'`. Always reference the user model via `django.contrib.auth.get_user_model()` or `settings.AUTH_USER_MODEL`.
-- **Firebase Services**: Firebase initialization and helpers are centralized in `apps.core.firebase`. Ensure Firebase service calls handle missing credentials gracefully during local development and testing.
+- **Location & Geocoordinates**: The `Porchlight.location` model field stores geocoordinates and supports JSON/GeoJSON coordinates (e.g. `{latitude, longitude}`, `{lat, lng}`, `[lng, lat]`, or GeoJSON Point). Model property `coordinates` and serializer fields normalize geocoordinates for API responses.
+- **Firebase Broadcast Service**: Firebase synchronization (`apps.core.firebase` and `apps.porchlights.signals`) operates strictly as an outbound event broadcast mechanism triggered on database transactions (`post_save` / `on_commit`). PostgreSQL remains the single source of truth. Ensure Firebase service calls handle missing credentials gracefully during local development and testing.
 - **Security**: Never commit secrets, `.env` files, or Firebase service account keys to version control (configured in `.gitignore`).

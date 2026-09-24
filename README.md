@@ -1,11 +1,12 @@
 # Porchlight Django Backend
 
-Porchlight backend built with Django, Django REST Framework (DRF), and Firebase Admin SDK.
+Porchlight backend built with Django 6.1+, Django REST Framework (DRF), PostgreSQL / PostGIS, and Firebase Admin SDK.
 
 ## Prerequisites
 
 - **Python**: Version `>= 3.13`
 - **uv**: Fast Python package and environment manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
+- **PostgreSQL / PostGIS** (Production / optional local PostgreSQL): PostgreSQL database with PostGIS spatial extension enabled
 - **Git**
 
 ---
@@ -38,7 +39,18 @@ Create a `.env` file in the project root directory:
 DJANGO_SECRET_KEY=your-local-secret-key
 DEBUG=True
 
-# Firebase Settings (Optional for local testing / features not using Firebase)
+# Database Configuration
+# Local development defaults to SQLite. To use PostgreSQL / PostGIS locally or in production:
+# DATABASE_URL=postgis://postgres:postgres@localhost:5432/porchlight_db
+# Or individual variables:
+# POSTGRES_DB=porchlight_db
+# POSTGRES_USER=postgres
+# POSTGRES_PASSWORD=postgres
+# POSTGRES_HOST=localhost
+# POSTGRES_PORT=5432
+# USE_POSTGRES=True
+
+# Firebase Settings (Used to broadcast database updates in real-time)
 FIREBASE_CREDENTIALS_PATH=path/to/firebase-service-account.json
 FIREBASE_DATABASE_URL=https://<your-project-id>.firebaseio.com
 FIREBASE_PROJECT_ID=<your-firebase-project-id>
@@ -49,7 +61,7 @@ FIREBASE_STORAGE_BUCKET=<your-storage-bucket>.appspot.com
 
 ### 4. Apply Database Migrations
 
-Initialize the SQLite database with the existing migrations:
+Initialize the database (SQLite for local dev by default, or PostgreSQL/PostGIS in production) with the migrations:
 
 ```bash
 uv run python manage.py migrate
@@ -124,6 +136,23 @@ uv run python manage.py test apps.core
   ```bash
   uv run python manage.py migrate
   ```
+
+---
+
+## Architecture & Data Flow
+
+1. **Database as Single Source of Truth**:
+   - Production uses **PostgreSQL with PostGIS** (`django.contrib.gis.db.backends.postgis`).
+   - Development defaults to SQLite for zero-setup execution, with optional local PostgreSQL/PostGIS.
+   - All state mutations (accounts, porchlights, invitations, logs) are transacted and validated through Django models in PostgreSQL.
+
+2. **Geocoordinates & Location Field**:
+   - The `Porchlight.location` model field stores structured geocoordinates (e.g. `{latitude, longitude}`, `[lng, lat]`, or GeoJSON `Point`).
+   - The model and serializers expose normalized `coordinates` (`[longitude, latitude]`) for client consumption and map rendering.
+
+3. **Firebase Real-Time Broadcast**:
+   - Firebase is used exclusively as a real-time broadcast and event delivery bus.
+   - When models are saved or updated, Django signals (`post_save`) trigger Firebase Admin SDK helpers to mirror state to Firestore / Realtime Database, allowing connected clients to receive instant updates without polling.
 
 ---
 
