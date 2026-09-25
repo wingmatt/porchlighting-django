@@ -1,5 +1,11 @@
 """API Views for accounts registration, login, logout, and profile management."""
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
+from django.http import Http404
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import generics, permissions, status
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
@@ -28,16 +34,54 @@ class RegisterView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        token, _ = Token.objects.get_or_create(user=user)
-        firebase_token = create_firebase_custom_token(str(user.id), {'email': user.email})
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        confirmation_token = default_token_generator.make_token(user)
+        confirmation_url = settings.EMAIL_CONFIRMATION_URL.format(
+            uid=uid,
+            token=confirmation_token,
+        )
+        send_mail(
+            subject='Confirm your Porchlight account',
+            message=(
+                f'Welcome to Porchlight! Confirm your email address by visiting:\n\n'
+                f'{confirmation_url}\n\n'
+                'This link can only be used once.'
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+        )
         return Response(
             {
                 'user': UserSerializer(user).data,
-                'token': token.key,
-                'firebase_token': firebase_token,
-                'message': 'Registration successful.',
+                'message': 'Registration successful. Check your email to confirm your account.',
             },
             status=status.HTTP_201_CREATED,
+        )
+
+
+class ConfirmEmailView(APIView):
+    """Activate a newly registered user using the emailed confirmation link."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, uidb64, token, *args, **kwargs):
+        try:
+            user_id = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=user_id)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise Http404('Invalid email confirmation link.')
+
+        if user.is_active or not default_token_generator.check_token(user, token):
+            return Response(
+                {'error': 'This email confirmation link is invalid or has already been used.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.is_active = True
+        user.save(update_fields=['is_active'])
+        return Response(
+            {'message': 'Email confirmed successfully. You can now log in.'},
+            status=status.HTTP_200_OK,
         )
 
 

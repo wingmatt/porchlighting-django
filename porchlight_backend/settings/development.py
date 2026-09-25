@@ -54,5 +54,11 @@ else:
 # Disable strict password validation in development if desired for easy testing
 AUTH_PASSWORD_VALIDATORS = []
 
-# Optional: Email backend for development
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# MailPit accepts SMTP messages locally and exposes them at http://localhost:8025.
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.getenv('EMAIL_HOST', '127.0.0.1')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '1025'))
+EMAIL_USE_TLS = False
+EMAIL_USE_SSL = False
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')

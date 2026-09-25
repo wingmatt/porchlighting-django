@@ -76,6 +76,14 @@ DATABASES = {
 # Custom User Model with email-only login
 AUTH_USER_MODEL = 'accounts.User'
 
+# Email configuration. Environment-specific settings select the backend and
+# credentials; these values are shared by development and production.
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@porchlight.local')
+EMAIL_CONFIRMATION_URL = os.getenv(
+    'EMAIL_CONFIRMATION_URL',
+    'http://127.0.0.1:8000/api/auth/confirm-email/{uid}/{token}/',
+)
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {

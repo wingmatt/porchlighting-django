@@ -1,6 +1,7 @@
 """Tests for custom User model and accounts authentication."""
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core import mail
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -41,6 +42,7 @@ class UserModelTests(TestCase):
         self.assertTrue(admin.is_superuser)
 
 
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class AuthAPITests(TestCase):
     """Test Auth API endpoints."""
 
@@ -60,8 +62,27 @@ class AuthAPITests(TestCase):
         }
         response = self.client.post(self.register_url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn('token', response.data)
         self.assertEqual(response.data['user']['email'], 'newuser@example.com')
+        user = User.objects.get(email='newuser@example.com')
+        self.assertFalse(user.is_active)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('Confirm your email address', mail.outbox[0].body)
+
+    def test_confirm_email_activates_user_and_is_one_time(self):
+        user = User.objects.create_user(email='confirm@example.com', password='Password123!', is_active=False)
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.encoding import force_bytes
+        from django.utils.http import urlsafe_base64_encode
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        url = reverse('accounts:confirm-email', kwargs={'uidb64': uid, 'token': token})
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_login_user_api(self):
         User.objects.create_user(email='login@example.com', password='Password123!')

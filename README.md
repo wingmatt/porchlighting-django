@@ -55,9 +55,40 @@ FIREBASE_CREDENTIALS_PATH=path/to/firebase-service-account.json
 FIREBASE_DATABASE_URL=https://<your-project-id>.firebaseio.com
 FIREBASE_PROJECT_ID=<your-firebase-project-id>
 FIREBASE_STORAGE_BUCKET=<your-storage-bucket>.appspot.com
+
+# Local email (MailPit SMTP; web inbox at http://localhost:8025)
+EMAIL_HOST=127.0.0.1
+EMAIL_PORT=1025
+DEFAULT_FROM_EMAIL=no-reply@porchlight.local
+# Optional override for the link included in confirmation emails
+# EMAIL_CONFIRMATION_URL=http://127.0.0.1:8000/api/auth/confirm-email/{uid}/{token}/
 ```
 
 > **Note**: Missing Firebase credentials will be handled gracefully during local development and automated testing if Firebase features are not actively invoked.
+
+### Local email with MailPit
+
+Development settings send signup confirmation email through MailPit. Start MailPit
+with Docker, then open `http://localhost:8025` to inspect messages:
+
+```bash
+docker run --rm -p 1025:1025 -p 8025:8025 axllent/mailpit
+```
+
+New accounts remain inactive until the confirmation link in the MailPit message is opened.
+
+### Production email with SendGrid
+
+Production settings use SendGrid SMTP. Set the following environment variables in the
+deployment environment; never commit the API key:
+
+```env
+SENDGRID_API_KEY=your-sendgrid-api-key
+DEFAULT_FROM_EMAIL=no-reply@your-domain.example
+EMAIL_CONFIRMATION_URL=https://api.your-domain.example/api/auth/confirm-email/{uid}/{token}/
+```
+
+The SMTP host is `smtp.sendgrid.net`, port `587`, with TLS enabled and username `apikey`.
 
 ### 4. Apply Database Migrations
 

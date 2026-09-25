@@ -112,6 +112,10 @@ uv run python manage.py runserver
     - `FIREBASE_DATABASE_URL`: Firebase Realtime Database URL.
     - `FIREBASE_PROJECT_ID`: Firebase project ID.
     - `FIREBASE_STORAGE_BUCKET`: Firebase Storage bucket.
+    - `DEFAULT_FROM_EMAIL`: Sender address for account confirmation emails.
+    - `EMAIL_CONFIRMATION_URL`: URL template containing `{uid}` and `{token}` for confirmation links.
+  - Development email is delivered to MailPit over SMTP at `127.0.0.1:1025` and viewed at `http://localhost:8025`.
+  - Production email uses SendGrid SMTP (`smtp.sendgrid.net:587`) with `SENDGRID_API_KEY`; never commit this secret.
 
 ---
 

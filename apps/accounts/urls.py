@@ -4,6 +4,7 @@ from .views import (
     FCMDeviceRegisterView,
     FCMDeviceUnregisterView,
     FirebaseCustomTokenView,
+    ConfirmEmailView,
     LoginView,
     LogoutView,
     MeView,
@@ -14,6 +15,7 @@ app_name = 'accounts'
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
+    path('confirm-email/<uidb64>/<token>/', ConfirmEmailView.as_view(), name='confirm-email'),
     path('login/', LoginView.as_view(), name='login'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('me/', MeView.as_view(), name='me'),
