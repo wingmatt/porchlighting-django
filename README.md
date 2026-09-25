@@ -62,6 +62,15 @@ EMAIL_PORT=1025
 DEFAULT_FROM_EMAIL=no-reply@porchlight.local
 # Optional override for the link included in confirmation emails
 # EMAIL_CONFIRMATION_URL=http://127.0.0.1:8000/api/auth/confirm-email/{uid}/{token}/
+
+# Optional production observability
+# SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
+# SENTRY_ENVIRONMENT=production
+# SENTRY_TRACES_SAMPLE_RATE=0.1
+# SENTRY_PROFILES_SAMPLE_RATE=0.0
+# NEW_RELIC_ENABLED=True
+# NEW_RELIC_LICENSE_KEY=your-new-relic-license-key
+# NEW_RELIC_APP_NAME=Porchlight Django
 ```
 
 > **Note**: Missing Firebase credentials will be handled gracefully during local development and automated testing if Firebase features are not actively invoked.
@@ -89,6 +98,43 @@ EMAIL_CONFIRMATION_URL=https://api.your-domain.example/api/auth/confirm-email/{u
 ```
 
 The SMTP host is `smtp.sendgrid.net`, port `587`, with TLS enabled and username `apikey`.
+
+### Production observability with Sentry and New Relic
+
+The backend includes Sentry error, request tracing, and optional profiling support,
+plus New Relic Django transaction instrumentation. Both integrations are disabled
+unless explicitly configured, so local development and tests do not require external
+credentials.
+
+For Sentry, set `SENTRY_DSN` and choose a sampling rate appropriate for the traffic
+volume and budget. Sentry transaction traces and profiles help identify slow views,
+database queries, and downstream calls:
+
+```env
+SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.1
+SENTRY_PROFILES_SAMPLE_RATE=0.0
+```
+
+For New Relic, set the license key and enable the agent. The WSGI and ASGI entry
+points initialize the agent before Django, allowing framework transactions and
+downstream timing to be correlated:
+
+```env
+NEW_RELIC_ENABLED=True
+NEW_RELIC_LICENSE_KEY=your-new-relic-license-key
+NEW_RELIC_APP_NAME=Porchlight Django
+```
+
+When starting a production process, `newrelic-admin run-program` can also be used
+to guarantee agent initialization for the process manager:
+
+```bash
+newrelic-admin run-program gunicorn porchlight_backend.wsgi:application
+```
+
+Never commit Sentry DSNs with sensitive configurations or New Relic license keys.
 
 ### 4. Apply Database Migrations
 

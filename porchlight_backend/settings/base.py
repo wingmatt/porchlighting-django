@@ -84,6 +84,15 @@ EMAIL_CONFIRMATION_URL = os.getenv(
     'http://127.0.0.1:8000/api/auth/confirm-email/{uid}/{token}/',
 )
 
+# Optional observability integrations. Startup modules initialize the SDKs only
+# when their respective credentials are configured.
+SENTRY_DSN = os.getenv('SENTRY_DSN', '')
+SENTRY_ENVIRONMENT = os.getenv('SENTRY_ENVIRONMENT', os.getenv('DJANGO_ENV', 'development'))
+SENTRY_TRACES_SAMPLE_RATE = os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1')
+SENTRY_PROFILES_SAMPLE_RATE = os.getenv('SENTRY_PROFILES_SAMPLE_RATE', '0.0')
+NEW_RELIC_ENABLED = os.getenv('NEW_RELIC_ENABLED', 'False').lower() in ('true', '1', 't')
+NEW_RELIC_APP_NAME = os.getenv('NEW_RELIC_APP_NAME', 'Porchlight Django')
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {

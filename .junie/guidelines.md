@@ -116,6 +116,9 @@ uv run python manage.py runserver
     - `EMAIL_CONFIRMATION_URL`: URL template containing `{uid}` and `{token}` for confirmation links.
   - Development email is delivered to MailPit over SMTP at `127.0.0.1:1025` and viewed at `http://localhost:8025`.
   - Production email uses SendGrid SMTP (`smtp.sendgrid.net:587`) with `SENDGRID_API_KEY`; never commit this secret.
+  - `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE`, and `SENTRY_PROFILES_SAMPLE_RATE` configure Sentry errors, traces, and profiling.
+  - `NEW_RELIC_ENABLED`, `NEW_RELIC_LICENSE_KEY`, and `NEW_RELIC_APP_NAME` configure New Relic APM; never commit monitoring credentials.
+  - Sentry and New Relic are initialized from the WSGI/ASGI entry points only when configured, so development and tests remain credential-free.
 
 ---
 

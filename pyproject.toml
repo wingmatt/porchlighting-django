@@ -8,8 +8,10 @@ dependencies = [
     "django-cors-headers>=4.9.0",
     "djangorestframework>=3.18.1",
     "firebase-admin>=7.6.0",
+    "newrelic>=11.0.0",
     "psycopg[binary]>=3.1.0",
     "pyjwt>=2.15.0",
     "python-dotenv>=1.2.3",
+    "sentry-sdk[django]>=2.0.0",
     "sqids>=0.5.2",
 ]
