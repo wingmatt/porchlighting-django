@@ -204,8 +204,7 @@ class Invitation(models.Model):
     )
     guest_token = models.CharField(max_length=255, null=True, blank=True)
     role = models.CharField(
-        max_length=20,
-        choices=PorchlightRole.choices,
+        max_length=50,
         default=PorchlightRole.GUEST,
     )
     is_guest = models.BooleanField(
@@ -229,6 +228,15 @@ class Invitation(models.Model):
 
     def __str__(self):
         return f"Invitation for {self.porchlight.name} ({self.role}) - Code: {self.code[:8]}..."
+
+    def get_role_display(self):
+        labels = {
+            PorchlightRole.OWNER: 'Owner',
+            PorchlightRole.ADMIN: 'Admin',
+            PorchlightRole.MEMBER: 'Member',
+            PorchlightRole.GUEST: 'Guest',
+        }
+        return labels.get(self.role, self.role)
 
     def save(self, *args, **kwargs):
         if self.numeric_id is None:
@@ -277,7 +285,7 @@ class Invitation(models.Model):
         elif val == 'view':
             self.role = PorchlightRole.GUEST
         else:
-            self.role = PorchlightRole.GUEST
+            self.role = value
 
     @property
     def sqid(self) -> str:

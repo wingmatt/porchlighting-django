@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from .models import GuestSession, Invitation, Porchlight, PorchlightMember, PorchlightRole
+from .models import GuestSession, Invitation, Permission, Porchlight, PorchlightMember, PorchlightRole
 from .tasks import (
     delete_porchlight_from_firebase_task,
     send_porchlight_fcm_update_task,
@@ -44,6 +44,44 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], 'Front Porch Light')
         self.assertEqual(response.data[0]['user_role'], 'OWNER')
+
+    def test_porchlight_has_reusable_default_view_invitation(self):
+        invitation = Invitation.objects.get(porchlight=self.porchlight, is_guest=False)
+        self.assertIsNone(invitation.expires_at)
+        self.assertEqual(invitation.max_uses, 0)
+        self.assertEqual(invitation.role_granted, 'view')
+        self.assertTrue(invitation.is_valid())
+
+        validate_url = reverse('porchlights:invitation-validate', kwargs={'code': invitation.sqid})
+        response = self.client.get(validate_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data['has_permission'])
+
+        self.client.force_authenticate(user=self.member)
+        accept_url = reverse('porchlights:invitation-accept')
+        response = self.client.post(accept_url, {'code': invitation.sqid}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        permission = Permission.objects.get(porchlight=self.porchlight, user=self.member)
+        self.assertEqual(permission.role, 'view')
+        invitation.refresh_from_db()
+        self.assertTrue(invitation.is_valid())
+
+    def test_custom_invitation_role_creates_custom_permission(self):
+        invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role='manage_schedule',
+        )
+        self.client.force_authenticate(user=self.member)
+        response = self.client.post(
+            reverse('porchlights:invitation-accept'), {'code': invitation.sqid}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data['membership'])
+        self.assertEqual(
+            Permission.objects.get(porchlight=self.porchlight, user=self.member).role,
+            'manage_schedule',
+        )
 
     def test_stranger_cannot_access_unshared_porchlight(self):
         self.client.force_authenticate(user=self.stranger)

@@ -4,7 +4,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from .models import GuestSession, Porchlight, PorchlightMember
+from .models import GuestSession, Invitation, Porchlight, PorchlightMember, PorchlightRole
 from .tasks import (
     delete_porchlight_from_firebase_task,
     sync_porchlight_to_firebase_task,
@@ -15,7 +15,15 @@ logger = logging.getLogger(__name__)
 
 @receiver(post_save, sender=Porchlight)
 def handle_porchlight_saved(sender, instance, created, **kwargs):
-    """Trigger background Firebase sync when Porchlight is created or updated."""
+    """Create the default view invitation and sync new or updated porchlights."""
+    if created:
+        Invitation.objects.create(
+            porchlight=instance,
+            invited_by=instance.owner,
+            role=PorchlightRole.GUEST,
+            is_guest=False,
+            max_uses=0,
+        )
     porchlight_id = str(instance.id)
     transaction.on_commit(lambda: sync_porchlight_to_firebase_task.delay(porchlight_id))
 

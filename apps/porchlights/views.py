@@ -1,4 +1,5 @@
 """API views for Porchlights, Beacons, Invitations, Permissions, RSVPs, Memberships, and Guest Access."""
+from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
@@ -160,6 +161,13 @@ class ValidateInvitationView(APIView):
         if not invitation:
             return Response({'error': 'Invitation not found.'}, status=status.HTTP_404_NOT_FOUND)
 
+        has_permission = bool(
+            request.user.is_authenticated
+            and (
+                invitation.porchlight.owner_id == request.user.id
+                or Permission.objects.filter(porchlight=invitation.porchlight, user=request.user).exists()
+            )
+        )
         return Response(
             {
                 'id': str(invitation.id),
@@ -178,6 +186,8 @@ class ValidateInvitationView(APIView):
                 'is_exhausted': invitation.is_exhausted,
                 'expires_at': invitation.expires_at,
                 'active_until': invitation.active_until,
+                'has_permission': has_permission,
+                'porchlight': PorchlightSerializer(invitation.porchlight, context={'request': request}).data,
             },
             status=status.HTTP_200_OK,
         )
@@ -192,40 +202,45 @@ class AcceptInvitationView(APIView):
         serializer = AcceptInvitationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         code = serializer.validated_data['code']
-        invitation = Invitation.get_by_sqid(code)
-        if not invitation:
-            return Response({'error': 'Invitation not found.'}, status=status.HTTP_404_NOT_FOUND)
+        with transaction.atomic():
+            invitation = Invitation.get_by_sqid(code)
+            if not invitation:
+                return Response({'error': 'Invitation not found.'}, status=status.HTTP_404_NOT_FOUND)
+            invitation = Invitation.objects.select_for_update().get(pk=invitation.pk)
+            if not invitation.is_valid():
+                return Response(
+                    {'error': 'This invitation has expired or has already been used.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        # Ensure user isn't already the owner
-        if invitation.porchlight.owner_id == request.user.id:
-            return Response(
-                {'error': 'You are already the owner of this Porchlight.'},
-                status=status.HTTP_400_BAD_REQUEST,
+            if invitation.porchlight.owner_id == request.user.id:
+                return Response(
+                    {'error': 'You are already the owner of this Porchlight.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            member = None
+            if invitation.role in PorchlightRole.values:
+                member, _ = PorchlightMember.objects.update_or_create(
+                    porchlight=invitation.porchlight,
+                    user=request.user,
+                    defaults={'role': invitation.role},
+                )
+
+            Permission.objects.update_or_create(
+                porchlight=invitation.porchlight,
+                user=request.user,
+                defaults={
+                    'role': invitation.role_granted,
+                    'from_invitation': invitation,
+                },
             )
-
-        # Create or update membership
-        member, _ = PorchlightMember.objects.update_or_create(
-            porchlight=invitation.porchlight,
-            user=request.user,
-            defaults={'role': invitation.role},
-        )
-
-        # Also create or update permission grant
-        Permission.objects.update_or_create(
-            porchlight=invitation.porchlight,
-            user=request.user,
-            defaults={
-                'role': invitation.role_granted,
-                'from_invitation': invitation,
-            },
-        )
-
-        invitation.record_usage()
+            invitation.record_usage()
 
         return Response(
             {
-                'message': f"Successfully joined {invitation.porchlight.name} as {member.get_role_display()}.",
-                'membership': PorchlightMemberSerializer(member).data,
+                'message': f"Successfully joined {invitation.porchlight.name}.",
+                'membership': PorchlightMemberSerializer(member).data if member else None,
                 'porchlight': PorchlightSerializer(invitation.porchlight, context={'request': request}).data,
             },
             status=status.HTTP_200_OK,
