@@ -91,6 +91,35 @@ class AuthAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('token', response.data)
 
+    def test_password_reset_request_and_confirm(self):
+        user = User.objects.create_user(email='reset@example.com', password='OldPassword123!')
+        response = self.client.post(reverse('accounts:password-reset'), {'email': user.email}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mail.outbox), 1)
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.encoding import force_bytes
+        from django.utils.http import urlsafe_base64_encode
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        response = self.client.post(reverse('accounts:password-reset-confirm', kwargs={'uidb64': uid, 'token': token}), {'password': 'NewPassword123!', 'password_confirm': 'NewPassword123!'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password('NewPassword123!'))
+
+    def test_magic_login_request_and_confirm(self):
+        user = User.objects.create_user(email='magic@example.com', password='Password123!')
+        response = self.client.post(reverse('accounts:magic-login'), {'email': user.email}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.encoding import force_bytes
+        from django.utils.http import urlsafe_base64_encode
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        response = self.client.get(reverse('accounts:magic-login-confirm', kwargs={'uidb64': uid, 'token': token}))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('token', response.data)
+        self.assertEqual(self.client.get(reverse('accounts:magic-login-confirm', kwargs={'uidb64': uid, 'token': token})).status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_me_api_authenticated(self):
         user = User.objects.create_user(email='me@example.com', password='Password123!', first_name='Me')
         self.client.force_authenticate(user=user)

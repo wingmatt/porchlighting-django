@@ -83,6 +83,14 @@ EMAIL_CONFIRMATION_URL = os.getenv(
     'EMAIL_CONFIRMATION_URL',
     'http://127.0.0.1:8000/api/auth/confirm-email/{uid}/{token}/',
 )
+PASSWORD_RESET_URL = os.getenv(
+    'PASSWORD_RESET_URL',
+    'http://localhost:5173/forgot-password/{uid}/{token}/',
+)
+MAGIC_LOGIN_URL = os.getenv(
+    'MAGIC_LOGIN_URL',
+    'http://localhost:5173/magic-login/{uid}/{token}/',
+)
 
 # Optional observability integrations. Startup modules initialize the SDKs only
 # when their respective credentials are configured.

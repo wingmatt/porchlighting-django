@@ -6,6 +6,7 @@ from django.core.mail import send_mail
 from django.http import Http404
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
@@ -105,6 +106,93 @@ class LoginView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class PasswordResetRequestView(APIView):
+    """Send a password reset link without revealing whether an address exists."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        email = request.data.get('email', '').strip().lower()
+        user = User.objects.filter(email=email, is_active=True).first()
+        if user:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            reset_url = settings.PASSWORD_RESET_URL.format(uid=uid, token=token)
+            send_mail(
+                subject='Reset your Porchlight password',
+                message=f'Reset your Porchlight password by visiting:\n\n{reset_url}\n\nThis link can only be used once.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+            )
+        return Response({'message': 'If an account exists for that email, a password reset link has been sent.'})
+
+
+class PasswordResetConfirmView(APIView):
+    """Set a new password using a one-time reset token."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, uidb64, token, *args, **kwargs):
+        try:
+            user_id = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=user_id)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({'error': 'Invalid password reset link.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        password = request.data.get('password', '')
+        if len(password) < 6:
+            return Response({'password': ['Password must be at least 6 characters.']}, status=status.HTTP_400_BAD_REQUEST)
+        if password != request.data.get('password_confirm'):
+            return Response({'password_confirm': ['Passwords do not match.']}, status=status.HTTP_400_BAD_REQUEST)
+        if not default_token_generator.check_token(user, token):
+            return Response({'error': 'This password reset link is invalid or has already been used.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(password)
+        user.save(update_fields=['password'])
+        Token.objects.filter(user=user).delete()
+        return Response({'message': 'Password reset successfully. You can now log in.'})
+
+
+class MagicLoginRequestView(APIView):
+    """Send a one-time passwordless login link."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        email = request.data.get('email', '').strip().lower()
+        user = User.objects.filter(email=email, is_active=True).first()
+        if user:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            login_url = settings.MAGIC_LOGIN_URL.format(uid=uid, token=token)
+            send_mail(
+                subject='Your Porchlight magic login link',
+                message=f'Log in to Porchlight by visiting:\n\n{login_url}\n\nThis link can only be used once.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+            )
+        return Response({'message': 'If an account exists for that email, a magic login link has been sent.'})
+
+
+class MagicLoginConfirmView(APIView):
+    """Exchange a one-time magic login token for a DRF API token."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, uidb64, token, *args, **kwargs):
+        try:
+            user_id = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=user_id)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({'error': 'Invalid magic login link.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not user.is_active or not default_token_generator.check_token(user, token):
+            return Response({'error': 'This magic login link is invalid or has already been used.'}, status=status.HTTP_400_BAD_REQUEST)
+        api_token, _ = Token.objects.get_or_create(user=user)
+        user.last_login = timezone.now()
+        user.save(update_fields=['last_login'])
+        return Response({'token': api_token.key, 'user': UserSerializer(user).data, 'message': 'Login successful.'})
 
 
 class LogoutView(APIView):
