@@ -1,5 +1,6 @@
 """Tests for Porchlight models, Invitations, Memberships, and Permissions."""
 import datetime
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -45,6 +46,29 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(response.data[0]['name'], 'Front Porch Light')
         self.assertEqual(response.data[0]['user_role'], 'OWNER')
         self.assertEqual(response.data[0]['sqid'], self.porchlight.sqid)
+
+    @patch('apps.porchlights.views.settings.GEOCODIO_API_KEY', 'test-key')
+    @patch('apps.porchlights.views.urlopen')
+    def test_geocode_address_returns_coordinates(self, mock_urlopen):
+        class MockResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"results": [{"location": {"lat": 40.7128, "lng": -74.006}}]}'
+
+        mock_urlopen.return_value = MockResponse()
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(
+            reverse('porchlights:porchlight-geocode'),
+            {'address': 'New York, NY'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {'latitude': 40.7128, 'longitude': -74.006})
 
     def test_porchlight_urls_use_sqid(self):
         self.client.force_authenticate(user=self.owner)
