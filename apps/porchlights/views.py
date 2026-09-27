@@ -1,14 +1,12 @@
 """API views for Porchlights, Beacons, Invitations, Permissions, RSVPs, Memberships, and Guest Access."""
-import json
-from urllib.error import HTTPError, URLError
-from urllib.parse import quote
-from urllib.request import urlopen
 
 from django.conf import settings
 from django.http import Http404
 from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
+from geocodio import Geocodio
+from geocodio.exceptions import GeocodioError
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -93,35 +91,26 @@ class GeocodeAddressView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        url = (
-            f'https://api.geocod.io/v1.7/geocode/{quote(address, safe="")}'
-            f'?api_key={quote(settings.GEOCODIO_API_KEY, safe="")}'
-        )
         try:
-            with urlopen(url, timeout=10) as response:
-                data = json.load(response)
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
+            response = Geocodio(settings.GEOCODIO_API_KEY).geocode(address)
+        except (GeocodioError, OSError, TimeoutError):
             return Response(
                 {'detail': 'Unable to find coordinates for that address.'},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        locations = data.get('results') or data.get('locations') or []
-        if not locations:
+        if not response.results:
             return Response(
                 {'detail': 'No coordinates were found for that address.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        location = locations[0].get('location', {})
-        try:
-            latitude = float(location['lat'])
-            longitude = float(location['lng'])
-        except (KeyError, TypeError, ValueError):
+        location = response.results[0].location
+        if location is None:
             return Response(
                 {'detail': 'Geocodio returned an invalid coordinate.'},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        return Response({'latitude': latitude, 'longitude': longitude})
+        return Response({'latitude': float(location.lat), 'longitude': float(location.lng)})
 
 
 # BeaconListCreateView alias for Laravel migration route compatibility

@@ -48,19 +48,11 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(response.data[0]['sqid'], self.porchlight.sqid)
 
     @patch('apps.porchlights.views.settings.GEOCODIO_API_KEY', 'test-key')
-    @patch('apps.porchlights.views.urlopen')
-    def test_geocode_address_returns_coordinates(self, mock_urlopen):
-        class MockResponse:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                return False
-
-            def read(self):
-                return b'{"results": [{"location": {"lat": 40.7128, "lng": -74.006}}]}'
-
-        mock_urlopen.return_value = MockResponse()
+    @patch('apps.porchlights.views.Geocodio')
+    def test_geocode_address_returns_coordinates(self, mock_geocodio):
+        mock_geocodio.return_value.geocode.return_value.results = [
+            type('Result', (), {'location': type('Location', (), {'lat': 40.7128, 'lng': -74.006})()})()
+        ]
         self.client.force_authenticate(user=self.owner)
         response = self.client.post(
             reverse('porchlights:porchlight-geocode'),
@@ -69,6 +61,8 @@ class PorchlightAndPermissionTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, {'latitude': 40.7128, 'longitude': -74.006})
+        mock_geocodio.assert_called_once_with('test-key')
+        mock_geocodio.return_value.geocode.assert_called_once_with('New York, NY')
 
     def test_porchlight_urls_use_sqid(self):
         self.client.force_authenticate(user=self.owner)
