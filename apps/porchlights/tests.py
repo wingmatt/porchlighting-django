@@ -81,6 +81,20 @@ class PorchlightAndPermissionTests(TestCase):
         uuid_response = self.client.get(uuid_url)
         self.assertEqual(uuid_response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_edit_permission_can_update_porchlight(self):
+        Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit')
+        self.client.force_authenticate(user=self.member)
+
+        response = self.client.patch(
+            reverse('porchlights:porchlight-detail', kwargs={'pk': self.porchlight.sqid}),
+            {'name': 'Updated Porch'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.porchlight.refresh_from_db()
+        self.assertEqual(self.porchlight.name, 'Updated Porch')
+
     def test_porchlight_has_reusable_default_view_invitation(self):
         invitation = Invitation.objects.get(porchlight=self.porchlight, is_guest=False)
         self.assertIsNone(invitation.expires_at)

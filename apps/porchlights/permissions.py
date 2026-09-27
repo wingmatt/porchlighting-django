@@ -81,7 +81,7 @@ class IsPorchlightOwnerOrAdmin(permissions.BasePermission):
         return Permission.objects.filter(
             porchlight=porchlight,
             user=request.user,
-            role__in=['owner', 'share', 'admin'],
+            role__in=['owner', 'edit', 'share', 'admin'],
         ).exists()
 
 
