@@ -267,8 +267,13 @@ class InvitationCreateSerializer(serializers.ModelSerializer):
             user=request.user,
             role=PorchlightRole.ADMIN,
         ).exists()
+        has_share_permission = Permission.objects.filter(
+            porchlight=value,
+            user=request.user,
+            role__in=['owner', 'edit', 'share', 'admin'],
+        ).exists()
 
-        if not (is_owner or is_admin):
+        if not (is_owner or is_admin or has_share_permission):
             raise serializers.ValidationError('You do not have permission to invite users to this Porchlight.')
 
         return value

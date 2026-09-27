@@ -125,6 +125,44 @@ class PorchlightAndPermissionTests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_edit_and_share_permissions_can_manage_active_invitations(self):
+        Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit')
+        expired = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.GUEST,
+            expires_at=timezone.now() - datetime.timedelta(minutes=1),
+        )
+        inactive = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.GUEST,
+            is_active=False,
+        )
+        active = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.GUEST,
+        )
+
+        self.client.force_authenticate(user=self.member)
+        invitation_url = reverse('porchlights:invitation-list-create')
+        response = self.client.get(invitation_url, {'porchlight': str(self.porchlight.id)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        invitation_ids = {item['id'] for item in response.data}
+        self.assertIn(str(active.id), invitation_ids)
+        self.assertNotIn(str(expired.id), invitation_ids)
+        self.assertNotIn(str(inactive.id), invitation_ids)
+
+        create_response = self.client.post(
+            invitation_url,
+            {'porchlight': str(self.porchlight.id), 'role': PorchlightRole.GUEST},
+            format='json',
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(create_response.data['id'], str(expired.id))
+        self.assertNotEqual(create_response.data['id'], str(inactive.id))
+
     def test_member_invitation_and_acceptance(self):
         # 1. Owner creates invitation for member
         self.client.force_authenticate(user=self.owner)

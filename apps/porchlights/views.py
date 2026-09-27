@@ -6,8 +6,9 @@ from urllib.request import urlopen
 
 from django.conf import settings
 from django.http import Http404
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -210,7 +211,12 @@ class InvitationListCreateView(generics.ListCreateAPIView):
         queryset = Invitation.objects.filter(
             Q(porchlight__owner=user)
             | Q(porchlight__memberships__user=user, porchlight__memberships__role=PorchlightRole.ADMIN)
-            | Q(porchlight__permission_grants__user=user, porchlight__permission_grants__role__in=['owner', 'share', 'admin'])
+            | Q(porchlight__permission_grants__user=user, porchlight__permission_grants__role__in=['owner', 'edit', 'share', 'admin'])
+        ).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
+            is_active=True,
+        ).filter(
+            Q(max_uses=0) | Q(uses_count__lt=models.F('max_uses'))
         ).distinct()
 
         if porchlight_id:
