@@ -95,6 +95,20 @@ class PorchlightAndPermissionTests(TestCase):
         self.porchlight.refresh_from_db()
         self.assertEqual(self.porchlight.name, 'Updated Porch')
 
+    def test_owner_can_toggle_porchlight_control(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid}),
+            {'action': 'toggle'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['porchlight']['is_on'])
+        self.porchlight.refresh_from_db()
+        self.assertTrue(self.porchlight.is_on)
+
     def test_porchlight_has_reusable_default_view_invitation(self):
         invitation = Invitation.objects.get(porchlight=self.porchlight, is_guest=False)
         self.assertIsNone(invitation.expires_at)
