@@ -82,11 +82,13 @@ class PorchlightSerializer(serializers.ModelSerializer):
     is_owner = serializers.SerializerMethodField()
     is_active = serializers.BooleanField(read_only=True)
     coordinates = serializers.SerializerMethodField()
+    sqid = serializers.CharField(read_only=True)
 
     class Meta:
         model = Porchlight
         fields = [
             'id',
+            'sqid',
             'name',
             'type',
             'active_duration',

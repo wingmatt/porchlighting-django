@@ -24,20 +24,20 @@ app_name = 'porchlights'
 urlpatterns = [
     # Porchlight endpoints
     path('porchlights/', PorchlightListCreateView.as_view(), name='porchlight-list-create'),
-    path('porchlights/<uuid:pk>/', PorchlightDetailView.as_view(), name='porchlight-detail'),
-    path('porchlights/<uuid:pk>/control/', PorchlightControlView.as_view(), name='porchlight-control'),
-    path('porchlights/<uuid:pk>/members/', PorchlightMemberListView.as_view(), name='porchlight-members'),
-    path('porchlights/<uuid:porchlight_pk>/members/<uuid:pk>/', PorchlightMemberDetailView.as_view(), name='porchlight-member-detail'),
-    path('porchlights/<uuid:porchlight_pk>/permissions/', PermissionListCreateView.as_view(), name='porchlight-permissions'),
-    path('porchlights/<uuid:porchlight_pk>/rsvps/', RsvpListCreateView.as_view(), name='porchlight-rsvps'),
+    path('porchlights/<str:pk>/', PorchlightDetailView.as_view(), name='porchlight-detail'),
+    path('porchlights/<str:pk>/control/', PorchlightControlView.as_view(), name='porchlight-control'),
+    path('porchlights/<str:pk>/members/', PorchlightMemberListView.as_view(), name='porchlight-members'),
+    path('porchlights/<str:porchlight_pk>/members/<uuid:pk>/', PorchlightMemberDetailView.as_view(), name='porchlight-member-detail'),
+    path('porchlights/<str:porchlight_pk>/permissions/', PermissionListCreateView.as_view(), name='porchlight-permissions'),
+    path('porchlights/<str:porchlight_pk>/rsvps/', RsvpListCreateView.as_view(), name='porchlight-rsvps'),
 
     # Beacon endpoints (Laravel compatibility routes)
     path('beacons/', BeaconListCreateView.as_view(), name='beacon-list-create'),
-    path('beacons/<uuid:pk>/', BeaconDetailView.as_view(), name='beacon-detail'),
-    path('beacons/<uuid:pk>/control/', BeaconControlView.as_view(), name='beacon-control'),
-    path('beacons/<uuid:pk>/members/', PorchlightMemberListView.as_view(), name='beacon-members'),
-    path('beacons/<uuid:porchlight_pk>/permissions/', PermissionListCreateView.as_view(), name='beacon-permissions'),
-    path('beacons/<uuid:porchlight_pk>/rsvps/', RsvpListCreateView.as_view(), name='beacon-rsvps'),
+    path('beacons/<str:pk>/', BeaconDetailView.as_view(), name='beacon-detail'),
+    path('beacons/<str:pk>/control/', BeaconControlView.as_view(), name='beacon-control'),
+    path('beacons/<str:pk>/members/', PorchlightMemberListView.as_view(), name='beacon-members'),
+    path('beacons/<str:porchlight_pk>/permissions/', PermissionListCreateView.as_view(), name='beacon-permissions'),
+    path('beacons/<str:porchlight_pk>/rsvps/', RsvpListCreateView.as_view(), name='beacon-rsvps'),
 
     # General RSVP endpoints
     path('rsvps/', RsvpListCreateView.as_view(), name='rsvp-list-create'),

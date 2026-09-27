@@ -44,6 +44,18 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['name'], 'Front Porch Light')
         self.assertEqual(response.data[0]['user_role'], 'OWNER')
+        self.assertEqual(response.data[0]['sqid'], self.porchlight.sqid)
+
+    def test_porchlight_urls_use_sqid(self):
+        self.client.force_authenticate(user=self.owner)
+        url = reverse('porchlights:porchlight-detail', kwargs={'pk': self.porchlight.sqid})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['sqid'], self.porchlight.sqid)
+
+        uuid_url = reverse('porchlights:porchlight-detail', kwargs={'pk': self.porchlight.id})
+        uuid_response = self.client.get(uuid_url)
+        self.assertEqual(uuid_response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_porchlight_has_reusable_default_view_invitation(self):
         invitation = Invitation.objects.get(porchlight=self.porchlight, is_guest=False)
@@ -85,7 +97,7 @@ class PorchlightAndPermissionTests(TestCase):
 
     def test_stranger_cannot_access_unshared_porchlight(self):
         self.client.force_authenticate(user=self.stranger)
-        url = reverse('porchlights:porchlight-detail', kwargs={'pk': self.porchlight.id})
+        url = reverse('porchlights:porchlight-detail', kwargs={'pk': self.porchlight.sqid})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -111,12 +123,12 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertTrue(PorchlightMember.objects.filter(porchlight=self.porchlight, user=self.member).exists())
 
         # 3. Member can now view and control the porchlight
-        detail_url = reverse('porchlights:porchlight-detail', kwargs={'pk': self.porchlight.id})
+        detail_url = reverse('porchlights:porchlight-detail', kwargs={'pk': self.porchlight.sqid})
         detail_res = self.client.get(detail_url)
         self.assertEqual(detail_res.status_code, status.HTTP_200_OK)
         self.assertEqual(detail_res.data['user_role'], 'MEMBER')
 
-        control_url = reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.id})
+        control_url = reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid})
         ctrl_res = self.client.post(control_url, {'action': 'turn_on', 'brightness': 100}, format='json')
         self.assertEqual(ctrl_res.status_code, status.HTTP_200_OK)
         self.porchlight.refresh_from_db()
@@ -145,7 +157,7 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertIsNotNone(guest_token)
 
         # 3. Guest controls porchlight using X-Guest-Token header
-        control_url = reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.id})
+        control_url = reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid})
         ctrl_res = self.client.post(
             control_url,
             {'action': 'toggle', 'color': '#00FF00'},
@@ -241,13 +253,13 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(len(res.data), 1)
 
         # Test beacon detail
-        detail_url = reverse('porchlights:beacon-detail', kwargs={'pk': self.porchlight.id})
+        detail_url = reverse('porchlights:beacon-detail', kwargs={'pk': self.porchlight.sqid})
         res = self.client.get(detail_url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data['name'], 'Front Porch Light')
 
         # Test beacon control
-        control_url = reverse('porchlights:beacon-control', kwargs={'pk': self.porchlight.id})
+        control_url = reverse('porchlights:beacon-control', kwargs={'pk': self.porchlight.sqid})
         res = self.client.post(control_url, {'action': 'turn_on'}, format='json')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
@@ -282,7 +294,7 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(res.data['type'], 'yes')
 
         # List RSVPs for beacon
-        beacon_rsvps_url = reverse('porchlights:beacon-rsvps', kwargs={'porchlight_pk': self.porchlight.id})
+        beacon_rsvps_url = reverse('porchlights:beacon-rsvps', kwargs={'porchlight_pk': self.porchlight.sqid})
         res = self.client.get(beacon_rsvps_url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res.data), 1)
@@ -301,7 +313,7 @@ class PorchlightAndPermissionTests(TestCase):
         # 1. Update location with geocoordinates dictionary
         coords = {'latitude': 37.774929, 'longitude': -122.419416}
         self.client.force_authenticate(user=self.owner)
-        control_url = reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.id})
+        control_url = reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid})
         res = self.client.post(
             control_url,
             {'location': coords},

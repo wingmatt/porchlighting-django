@@ -1,7 +1,7 @@
 """API views for Porchlights, Beacons, Invitations, Permissions, RSVPs, Memberships, and Guest Access."""
+from django.http import Http404
 from django.db import transaction
 from django.db.models import Q
-from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -36,6 +36,25 @@ from .serializers import (
 )
 
 
+def get_porchlight_by_sqid_or_404(identifier):
+    """Resolve a URL Sqid to a porchlight or raise a not-found response."""
+    porchlight = Porchlight.get_by_sqid(identifier)
+    if not porchlight:
+        raise Http404
+    return porchlight
+
+
+def get_porchlight_by_identifier(identifier):
+    """Resolve a Sqid or internal UUID used in a request body or query string."""
+    porchlight = Porchlight.get_by_sqid(identifier)
+    if porchlight:
+        return porchlight
+    try:
+        return Porchlight.objects.filter(pk=identifier).first()
+    except (TypeError, ValueError):
+        return None
+
+
 class PorchlightListCreateView(generics.ListCreateAPIView):
     """List porchlights/beacons accessible to user or create a new porchlight/beacon."""
 
@@ -62,6 +81,11 @@ class PorchlightDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Porchlight.objects.all()
     permission_classes = [HasPorchlightAccess]
 
+    def get_object(self):
+        porchlight = get_porchlight_by_sqid_or_404(self.kwargs['pk'])
+        self.check_object_permissions(self.request, porchlight)
+        return porchlight
+
     def get_serializer_class(self):
         if self.request.method == 'GET':
             return PorchlightDetailSerializer
@@ -85,7 +109,7 @@ class PorchlightControlView(APIView):
     permission_classes = [HasPorchlightAccess]
 
     def post(self, request, pk, *args, **kwargs):
-        porchlight = get_object_or_404(Porchlight, pk=pk)
+        porchlight = get_porchlight_by_sqid_or_404(pk)
         self.check_object_permissions(request, porchlight)
 
         action = request.data.get('action')
@@ -304,11 +328,12 @@ class PorchlightMemberListView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         porchlight_pk = self.kwargs.get('porchlight_pk') or self.kwargs.get('pk')
-        return PorchlightMember.objects.filter(porchlight_id=porchlight_pk)
+        porchlight = Porchlight.get_by_sqid(porchlight_pk)
+        return PorchlightMember.objects.filter(porchlight=porchlight) if porchlight else PorchlightMember.objects.none()
 
     def perform_create(self, serializer):
         porchlight_pk = self.kwargs.get('porchlight_pk') or self.kwargs.get('pk')
-        porchlight = get_object_or_404(Porchlight, pk=porchlight_pk)
+        porchlight = get_porchlight_by_sqid_or_404(porchlight_pk)
         self.check_object_permissions(self.request, porchlight)
         serializer.save(porchlight=porchlight)
 
@@ -336,7 +361,8 @@ class RsvpListCreateView(generics.ListCreateAPIView):
         )
         queryset = Rsvp.objects.all()
         if porchlight_id:
-            queryset = queryset.filter(porchlight_id=porchlight_id)
+            porchlight = get_porchlight_by_identifier(porchlight_id)
+            queryset = queryset.filter(porchlight=porchlight) if porchlight else queryset.none()
         elif self.request.user and self.request.user.is_authenticated:
             queryset = queryset.filter(user=self.request.user)
         elif getattr(self.request, 'guest_token', None):
@@ -357,7 +383,9 @@ class RsvpListCreateView(generics.ListCreateAPIView):
             or self.request.data.get('beacon')
         )
         if porchlight_id:
-            porchlight = get_object_or_404(Porchlight, pk=porchlight_id)
+            porchlight = get_porchlight_by_identifier(porchlight_id)
+            if not porchlight:
+                raise Http404
             serializer.save(user=user, guest_id=guest_id, porchlight=porchlight)
         else:
             serializer.save(user=user, guest_id=guest_id)
@@ -389,7 +417,8 @@ class PermissionListCreateView(generics.ListCreateAPIView):
             Q(porchlight__owner=user) | Q(user=user)
         ).distinct()
         if porchlight_id:
-            queryset = queryset.filter(porchlight_id=porchlight_id)
+            porchlight = get_porchlight_by_identifier(porchlight_id)
+            queryset = queryset.filter(porchlight=porchlight) if porchlight else queryset.none()
         return queryset
 
     def perform_create(self, serializer):
@@ -400,7 +429,9 @@ class PermissionListCreateView(generics.ListCreateAPIView):
             or self.request.data.get('beacon')
         )
         if porchlight_id:
-            porchlight = get_object_or_404(Porchlight, pk=porchlight_id)
+            porchlight = get_porchlight_by_identifier(porchlight_id)
+            if not porchlight:
+                raise Http404
             serializer.save(porchlight=porchlight)
         else:
             serializer.save()

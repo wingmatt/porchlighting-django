@@ -23,6 +23,7 @@ class Porchlight(models.Model):
     """Porchlight / Beacon device model with state, configuration, and owner."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    numeric_id = models.PositiveIntegerField(unique=True, null=True, blank=True, db_index=True)
     name = models.CharField(max_length=255, help_text=_('Friendly name of the porchlight or beacon'))
     type = models.CharField(max_length=100, default='default', help_text=_('Type of beacon/porchlight'))
     active_duration = models.IntegerField(default=4, help_text=_('Active duration in hours'))
@@ -52,6 +53,27 @@ class Porchlight(models.Model):
 
     def __str__(self):
         return f"{self.name} ({'ON' if self.is_on else 'OFF'})"
+
+    def save(self, *args, **kwargs):
+        if self.numeric_id is None:
+            max_num = type(self).objects.aggregate(models.Max('numeric_id'))['numeric_id__max']
+            self.numeric_id = (max_num or 0) + 1
+        super().save(*args, **kwargs)
+
+    @property
+    def sqid(self) -> str:
+        """URL-safe Sqids encoding for the porchlight ID."""
+        return sqids.encode([self.numeric_id])
+
+    @classmethod
+    def get_by_sqid(cls, sqid_str: str):
+        """Find a porchlight by its URL-safe Sqids identifier."""
+        if not sqid_str:
+            return None
+        numbers = sqids.decode(sqid_str)
+        if not numbers:
+            return None
+        return cls.objects.filter(numeric_id=numbers[0]).first()
 
     @property
     def coordinates(self) -> dict | None:
