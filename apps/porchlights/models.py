@@ -400,7 +400,7 @@ class Permission(models.Model):
 
 
 class Rsvp(models.Model):
-    """RSVP response matching Laravel structure."""
+    """A binary RSVP from one user or guest for a porchlight."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     porchlight = models.ForeignKey(
@@ -416,7 +416,6 @@ class Rsvp(models.Model):
         on_delete=models.CASCADE,
     )
     guest_id = models.CharField(max_length=255, null=True, blank=True)
-    type = models.CharField(max_length=20, null=True, blank=True)  # 'yes', 'maybe'
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -427,7 +426,7 @@ class Rsvp(models.Model):
 
     def __str__(self):
         target = self.user.email if self.user else f"Guest ({self.guest_id})"
-        return f"RSVP ({self.type}) for {self.porchlight.name} by {target}"
+        return f"RSVP for {self.porchlight.name} by {target}"
 
     @property
     def beacon(self):

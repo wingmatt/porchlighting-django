@@ -53,7 +53,7 @@ class PermissionSerializer(serializers.ModelSerializer):
 
 
 class RsvpSerializer(serializers.ModelSerializer):
-    """Serializer for RSVP responses."""
+    """Serializer for binary RSVP responses."""
 
     user_email = serializers.EmailField(source='user.email', read_only=True)
     beacon_id = serializers.UUIDField(source='porchlight.id', read_only=True)
@@ -67,7 +67,6 @@ class RsvpSerializer(serializers.ModelSerializer):
             'user',
             'user_email',
             'guest_id',
-            'type',
             'created_at',
             'updated_at',
         ]
@@ -83,6 +82,9 @@ class PorchlightSerializer(serializers.ModelSerializer):
     is_active = serializers.BooleanField(read_only=True)
     coordinates = serializers.SerializerMethodField()
     sqid = serializers.CharField(read_only=True)
+    rsvp_count = serializers.IntegerField(source='rsvps.count', read_only=True)
+    has_rsvp = serializers.SerializerMethodField()
+    rsvp_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Porchlight
@@ -107,8 +109,27 @@ class PorchlightSerializer(serializers.ModelSerializer):
             'is_owner',
             'created_at',
             'updated_at',
+            'rsvp_count',
+            'has_rsvp',
+            'rsvp_id',
         ]
         read_only_fields = ['id', 'owner', 'is_active', 'coordinates', 'created_at', 'updated_at']
+
+    def _current_rsvp(self, obj):
+        request = self.context.get('request')
+        if not request:
+            return None
+        if request.user and request.user.is_authenticated:
+            return obj.rsvps.filter(user=request.user).first()
+        guest_token = getattr(request, 'guest_token', None) or request.headers.get('X-Guest-Token')
+        return obj.rsvps.filter(guest_id=guest_token).first() if guest_token else None
+
+    def get_has_rsvp(self, obj) -> bool:
+        return self._current_rsvp(obj) is not None
+
+    def get_rsvp_id(self, obj):
+        rsvp = self._current_rsvp(obj)
+        return rsvp.id if rsvp else None
 
     def get_coordinates(self, obj) -> dict | None:
         return obj.coordinates

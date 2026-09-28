@@ -8,6 +8,7 @@ from django.utils import timezone
 from geocodio import Geocodio
 from geocodio.exceptions import GeocodioError
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -529,56 +530,62 @@ class PorchlightMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class RsvpListCreateView(generics.ListCreateAPIView):
-    """List or create RSVPs for Beacons/Porchlights."""
+    """List or create binary RSVPs for accessible Beacons/Porchlights."""
 
     serializer_class = RsvpSerializer
     permission_classes = [permissions.AllowAny]
 
-    def get_queryset(self):
+    def _actor(self):
+        user = self.request.user if self.request.user and self.request.user.is_authenticated else None
+        guest_id = getattr(self.request, 'guest_token', None) or self.request.headers.get('X-Guest-Token')
+        return user, guest_id
+
+    def _porchlight(self):
         porchlight_id = (
             self.request.query_params.get('porchlight')
             or self.request.query_params.get('beacon')
             or self.kwargs.get('porchlight_pk')
             or self.kwargs.get('pk')
-        )
-        queryset = Rsvp.objects.all()
-        if porchlight_id:
-            porchlight = get_porchlight_by_identifier(porchlight_id)
-            queryset = queryset.filter(porchlight=porchlight) if porchlight else queryset.none()
-        elif self.request.user and self.request.user.is_authenticated:
-            queryset = queryset.filter(user=self.request.user)
-        elif getattr(self.request, 'guest_token', None):
-            queryset = queryset.filter(guest_id=self.request.guest_token)
-        return queryset
-
-    def perform_create(self, serializer):
-        user = self.request.user if self.request.user and self.request.user.is_authenticated else None
-        guest_id = (
-            getattr(self.request, 'guest_token', None)
-            or self.request.headers.get('X-Guest-Token')
-            or self.request.data.get('guest_id')
-        )
-        porchlight_id = (
-            self.kwargs.get('porchlight_pk')
-            or self.kwargs.get('pk')
             or self.request.data.get('porchlight')
             or self.request.data.get('beacon')
         )
-        if porchlight_id:
-            porchlight = get_porchlight_by_identifier(porchlight_id)
-            if not porchlight:
-                raise Http404
-            serializer.save(user=user, guest_id=guest_id, porchlight=porchlight)
-        else:
-            serializer.save(user=user, guest_id=guest_id)
+        return get_porchlight_by_identifier(porchlight_id) if porchlight_id else None
+
+    def _check_access(self, porchlight):
+        if not porchlight:
+            raise ValidationError({'porchlight': 'A valid porchlight is required.'})
+        if not HasPorchlightAccess().has_object_permission(self.request, self, porchlight):
+            raise PermissionDenied('You do not have permission to RSVP for this porchlight.')
+        return porchlight
+
+    def get_queryset(self):
+        porchlight = self._porchlight()
+        if porchlight:
+            self._check_access(porchlight)
+        user, guest_id = self._actor()
+        actor_filter = {'user': user} if user else {'guest_id': guest_id}
+        return Rsvp.objects.filter(porchlight=porchlight, **actor_filter) if porchlight else Rsvp.objects.none()
+
+    def perform_create(self, serializer):
+        porchlight = self._check_access(self._porchlight())
+        user, guest_id = self._actor()
+        if not user and not guest_id:
+            raise PermissionDenied('Authentication or a guest token is required.')
+        if Rsvp.objects.filter(porchlight=porchlight, **({'user': user} if user else {'guest_id': guest_id})).exists():
+            raise ValidationError({'detail': 'RSVP already exists.'})
+        serializer.save(user=user, guest_id=guest_id, porchlight=porchlight)
 
 
 class RsvpDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Retrieve, update, or delete an RSVP response."""
 
-    queryset = Rsvp.objects.all()
-    serializer_class = RsvpSerializer
     permission_classes = [permissions.AllowAny]
+    serializer_class = RsvpSerializer
+
+    def get_queryset(self):
+        user = self.request.user if self.request.user and self.request.user.is_authenticated else None
+        guest_id = getattr(self.request, 'guest_token', None) or self.request.headers.get('X-Guest-Token')
+        return Rsvp.objects.filter(user=user) if user else Rsvp.objects.filter(guest_id=guest_id)
 
 
 class PermissionListCreateView(generics.ListCreateAPIView):

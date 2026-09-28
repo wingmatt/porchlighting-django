@@ -477,22 +477,27 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(res.data['sqid'], sqid)
 
     def test_rsvps_and_permissions_endpoints(self):
+        Permission.objects.create(porchlight=self.porchlight, user=self.member, role='view')
         self.client.force_authenticate(user=self.member)
         # Create RSVP
         rsvp_url = reverse('porchlights:rsvp-list-create')
         res = self.client.post(
             rsvp_url,
-            {'porchlight': str(self.porchlight.id), 'type': 'yes'},
+            {'porchlight': str(self.porchlight.id)},
             format='json',
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(res.data['type'], 'yes')
+        self.assertNotIn('type', res.data)
+        rsvp_id = res.data['id']
 
         # List RSVPs for beacon
         beacon_rsvps_url = reverse('porchlights:beacon-rsvps', kwargs={'porchlight_pk': self.porchlight.sqid})
         res = self.client.get(beacon_rsvps_url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res.data), 1)
+
+        delete_res = self.client.delete(reverse('porchlights:rsvp-detail', kwargs={'pk': rsvp_id}))
+        self.assertEqual(delete_res.status_code, status.HTTP_204_NO_CONTENT)
 
         # Create Permission as owner
         self.client.force_authenticate(user=self.owner)

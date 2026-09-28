@@ -69,8 +69,8 @@ class PermissionAdmin(admin.ModelAdmin):
 
 @admin.register(Rsvp)
 class RsvpAdmin(admin.ModelAdmin):
-    list_display = ('porchlight', 'user', 'guest_id', 'type', 'created_at')
-    list_filter = ('type', 'created_at')
+    list_display = ('porchlight', 'user', 'guest_id', 'created_at')
+    list_filter = ('created_at',)
     search_fields = ('user__email', 'guest_id', 'porchlight__name')
 
 
