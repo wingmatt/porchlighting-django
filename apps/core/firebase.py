@@ -24,7 +24,7 @@ def get_firebase_app():
 
         cred_path = getattr(settings, 'FIREBASE_CREDENTIALS_PATH', None)
         database_url = getattr(settings, 'FIREBASE_DATABASE_URL', '')
-        project_id = getattr(settings, 'FIREBASE_PROJECT_ID', 'porchlight-project')
+        project_id = getattr(settings, 'FIREBASE_PROJECT_ID', '')
 
         options = {}
         if database_url:
