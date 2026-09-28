@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.firebase import create_firebase_custom_token
+from apps.porchlights.models import GuestSession, Permission
 from .models import FCMDeviceToken, WebPushSubscription
 from .serializers import (
     FCMDeviceTokenSerializer,
@@ -193,7 +194,8 @@ class MagicLoginConfirmView(APIView):
         api_token, _ = Token.objects.get_or_create(user=user)
         user.last_login = timezone.now()
         user.save(update_fields=['last_login'])
-        return Response({'token': api_token.key, 'user': UserSerializer(user).data, 'message': 'Login successful.'})
+        firebase_token = create_firebase_custom_token(str(user.id), {'email': user.email})
+        return Response({'token': api_token.key, 'user': UserSerializer(user).data, 'firebase_token': firebase_token, 'message': 'Login successful.'})
 
 
 class LogoutView(APIView):
@@ -234,6 +236,14 @@ class FirebaseCustomTokenView(APIView):
             if not guest_token:
                 return Response(
                     {'error': 'Authentication or guest_token is required.'},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+            guest_session = GuestSession.objects.filter(guest_token=guest_token).first()
+            has_guest_access = guest_session and guest_session.is_valid()
+            has_guest_access = has_guest_access or Permission.objects.filter(guest_id=guest_token).exists()
+            if not has_guest_access:
+                return Response(
+                    {'error': 'The guest token is invalid or expired.'},
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
             uid = f"guest_{guest_token}"

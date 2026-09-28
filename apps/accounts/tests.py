@@ -170,6 +170,14 @@ class AuthAPITests(TestCase):
         # Firebase custom token generation may fail if credentials aren't present in test env or succeed if mock/dev
         self.assertIn(res.status_code, [status.HTTP_200_OK, status.HTTP_503_SERVICE_UNAVAILABLE])
 
+    def test_firebase_token_endpoint_rejects_unknown_guest(self):
+        response = self.client.post(
+            reverse('accounts:firebase-token'),
+            {'guest_token': 'not-a-real-guest-token'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_web_push_subscription_registration_authenticated_user(self):
         user = User.objects.create_user(email='webpush@example.com', password='Password123!')
         self.client.force_authenticate(user=user)
