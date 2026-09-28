@@ -262,6 +262,17 @@ class ValidateInvitationView(APIView):
                 ).exists()
             )
         )
+        can_share = bool(
+            request.user.is_authenticated
+            and (
+                invitation.porchlight.owner_id == request.user.id
+                or Permission.objects.filter(
+                    porchlight=invitation.porchlight,
+                    user=request.user,
+                    role__in=['owner', 'edit', 'share', 'admin'],
+                ).exists()
+            )
+        )
         return Response(
             {
                 'id': str(invitation.id),
@@ -282,6 +293,7 @@ class ValidateInvitationView(APIView):
                 'active_until': invitation.active_until,
                 'has_permission': has_permission,
                 'can_manage': can_manage,
+                'can_share': can_share,
                 'porchlight': PorchlightSerializer(invitation.porchlight, context={'request': request}).data,
             },
             status=status.HTTP_200_OK,

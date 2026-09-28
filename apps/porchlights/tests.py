@@ -185,6 +185,25 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertNotEqual(create_response.data['id'], str(expired.id))
         self.assertNotEqual(create_response.data['id'], str(inactive.id))
 
+    def test_owner_edit_and_share_users_can_copy_invitation_link(self):
+        invitation = Invitation.objects.create(porchlight=self.porchlight, invited_by=self.owner)
+        validate_url = reverse('porchlights:invitation-validate', kwargs={'code': invitation.sqid})
+
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get(validate_url)
+        self.assertTrue(response.data['can_share'])
+
+        for role in ('edit', 'share'):
+            Permission.objects.create(porchlight=self.porchlight, user=self.member, role=role)
+            self.client.force_authenticate(user=self.member)
+            response = self.client.get(validate_url)
+            self.assertTrue(response.data['can_share'])
+            Permission.objects.filter(porchlight=self.porchlight, user=self.member).delete()
+
+        self.client.force_authenticate(user=self.stranger)
+        response = self.client.get(validate_url)
+        self.assertFalse(response.data['can_share'])
+
     def test_member_invitation_and_acceptance(self):
         # 1. Owner creates invitation for member
         self.client.force_authenticate(user=self.owner)
