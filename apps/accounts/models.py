@@ -130,3 +130,30 @@ class FCMDeviceToken(models.Model):
     def __str__(self):
         target = self.user.email if self.user else f"Guest ({self.guest_token[:8] if self.guest_token else 'unknown'})"
         return f"FCM Token for {target} - {self.device_type}"
+
+
+class WebPushSubscription(models.Model):
+    """Standards-based browser Push API subscription for a user or guest."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='web_push_subscriptions',
+        null=True,
+        blank=True,
+    )
+    guest_token = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    endpoint = models.URLField(max_length=2048, unique=True)
+    p256dh = models.CharField(max_length=255)
+    auth = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        target = self.user.email if self.user else f"Guest ({self.guest_token[:8] if self.guest_token else 'unknown'})"
+        return f"Web Push subscription for {target}"

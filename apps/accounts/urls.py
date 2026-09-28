@@ -3,6 +3,8 @@ from django.urls import path
 from .views import (
     FCMDeviceRegisterView,
     FCMDeviceUnregisterView,
+    WebPushRegisterView,
+    WebPushUnregisterView,
     FirebaseCustomTokenView,
     ConfirmEmailView,
     LoginView,
@@ -31,4 +33,6 @@ urlpatterns = [
     path('fcm/register/', FCMDeviceRegisterView.as_view(), name='fcm-register'),
     path('fcm/unregister/', FCMDeviceUnregisterView.as_view(), name='fcm-unregister'),
     path('fcm-token/', FCMDeviceRegisterView.as_view(), name='fcm-token'),
+    path('web-push/register/', WebPushRegisterView.as_view(), name='web-push-register'),
+    path('web-push/unregister/', WebPushUnregisterView.as_view(), name='web-push-unregister'),
 ]

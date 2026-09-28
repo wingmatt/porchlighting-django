@@ -47,6 +47,28 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(response.data[0]['user_role'], 'OWNER')
         self.assertEqual(response.data[0]['sqid'], self.porchlight.sqid)
 
+    @patch('apps.porchlights.views.notify_porchlight_turned_on')
+    def test_turning_on_notifies_accessible_recipients_without_notifying_actor(self, notify):
+        self.porchlight.is_on = False
+        self.porchlight.save(update_fields=['is_on'])
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(
+            reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid}),
+            {'action': 'turn_on'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        notify.assert_called_once_with(self.porchlight, actor_user=self.owner, actor_guest_token=None)
+
+        notify.reset_mock()
+        response = self.client.post(
+            reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid}),
+            {'action': 'turn_on'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        notify.assert_not_called()
+
     def test_neighborhood_lists_user_owned_and_granted_porchlights(self):
         owned_porchlight = Porchlight.objects.create(name='Owned Porch', owner=self.member)
         member_porchlight = Porchlight.objects.create(name='Member Porch', owner=self.owner)

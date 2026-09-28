@@ -1,7 +1,7 @@
 """Serializers for accounts authentication and user profiles."""
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers
-from .models import FCMDeviceToken
+from .models import FCMDeviceToken, WebPushSubscription
 
 User = get_user_model()
 
@@ -86,3 +86,16 @@ class FCMDeviceTokenUnregisterSerializer(serializers.Serializer):
     """Serializer for unregistering an FCM device token."""
 
     registration_token = serializers.CharField(max_length=255)
+
+
+class WebPushSubscriptionSerializer(serializers.ModelSerializer):
+    """Validate the browser Push API subscription payload."""
+
+    class Meta:
+        model = WebPushSubscription
+        fields = ['endpoint', 'p256dh', 'auth']
+
+    def validate_endpoint(self, value):
+        if not value.startswith('https://'):
+            raise serializers.ValidationError('A secure HTTPS push endpoint is required.')
+        return value

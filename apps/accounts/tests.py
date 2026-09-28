@@ -6,7 +6,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from .models import FCMDeviceToken
+from .models import FCMDeviceToken, WebPushSubscription
 
 User = get_user_model()
 
@@ -169,3 +169,22 @@ class AuthAPITests(TestCase):
         res = self.client.get(url)
         # Firebase custom token generation may fail if credentials aren't present in test env or succeed if mock/dev
         self.assertIn(res.status_code, [status.HTTP_200_OK, status.HTTP_503_SERVICE_UNAVAILABLE])
+
+    def test_web_push_subscription_registration_authenticated_user(self):
+        user = User.objects.create_user(email='webpush@example.com', password='Password123!')
+        self.client.force_authenticate(user=user)
+        response = self.client.post(reverse('accounts:web-push-register'), {
+            'endpoint': 'https://push.example.test/subscription/1',
+            'p256dh': 'public-key',
+            'auth': 'auth-secret',
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(WebPushSubscription.objects.filter(user=user).exists())
+
+    def test_web_push_subscription_requires_guest_or_user(self):
+        response = self.client.post(reverse('accounts:web-push-register'), {
+            'endpoint': 'https://push.example.test/subscription/2',
+            'p256dh': 'public-key',
+            'auth': 'auth-secret',
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

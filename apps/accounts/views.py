@@ -13,13 +13,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.firebase import create_firebase_custom_token
-from .models import FCMDeviceToken
+from .models import FCMDeviceToken, WebPushSubscription
 from .serializers import (
     FCMDeviceTokenSerializer,
     FCMDeviceTokenUnregisterSerializer,
     LoginSerializer,
     RegisterSerializer,
     UserSerializer,
+    WebPushSubscriptionSerializer,
 )
 
 User = get_user_model()
@@ -305,3 +306,35 @@ class FCMDeviceUnregisterView(APIView):
             return Response({'message': 'Device token not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         return Response({'message': 'Device token deactivated successfully.'}, status=status.HTTP_200_OK)
+
+
+class WebPushRegisterView(APIView):
+    """Register a browser Push API subscription for an authenticated user or guest."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = WebPushSubscriptionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = request.user if request.user and request.user.is_authenticated else None
+        guest_token = None if user else (request.headers.get('X-Guest-Token') or request.data.get('guest_token'))
+        if not user and not guest_token:
+            return Response({'detail': 'Authentication or a guest token is required.'}, status=status.HTTP_401_UNAUTHORIZED)
+        subscription, created = WebPushSubscription.objects.update_or_create(
+            endpoint=serializer.validated_data['endpoint'],
+            defaults={**serializer.validated_data, 'user': user, 'guest_token': guest_token, 'is_active': True},
+        )
+        return Response({'message': 'Web Push subscription registered.', 'id': str(subscription.id)}, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+
+class WebPushUnregisterView(APIView):
+    """Deactivate a browser Push API subscription."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        endpoint = request.data.get('endpoint')
+        if not endpoint:
+            return Response({'detail': 'An endpoint is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        updated = WebPushSubscription.objects.filter(endpoint=endpoint).update(is_active=False)
+        return Response({'message': 'Web Push subscription removed.', 'updated': bool(updated)})

@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.firebase import create_firebase_custom_token
+from apps.core.notifications import notify_porchlight_turned_on
 from .models import (
     GuestSession,
     Invitation,
@@ -176,6 +177,7 @@ class PorchlightControlView(APIView):
     def post(self, request, pk, *args, **kwargs):
         porchlight = get_porchlight_by_sqid_or_404(pk)
         self.check_object_permissions(request, porchlight)
+        was_on = porchlight.is_on
 
         action = request.data.get('action')
         if action == 'toggle':
@@ -188,6 +190,11 @@ class PorchlightControlView(APIView):
         serializer = PorchlightControlSerializer(porchlight, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
+        if not was_on and porchlight.is_on:
+            actor_user = request.user if request.user and request.user.is_authenticated else None
+            actor_guest = request.headers.get('X-Guest-Token') or getattr(request, 'guest_token', None)
+            notify_porchlight_turned_on(porchlight, actor_user=actor_user, actor_guest_token=actor_guest)
 
         # Update last active timestamp if guest session
         guest_session = get_guest_session_from_request(request, porchlight)
