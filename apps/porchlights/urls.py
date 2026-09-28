@@ -9,6 +9,8 @@ from .views import (
     GeocodeAddressView,
     InvitationDetailView,
     InvitationListCreateView,
+    InvitationParticipantsView,
+    InvitationRevokeAllView,
     PermissionListCreateView,
     PorchlightControlView,
     PorchlightDetailView,
@@ -52,6 +54,8 @@ urlpatterns = [
     path('invitations/', InvitationListCreateView.as_view(), name='invitation-list-create'),
     path('invitations/<uuid:pk>/', InvitationDetailView.as_view(), name='invitation-detail'),
     path('invitations/validate/<str:code>/', ValidateInvitationView.as_view(), name='invitation-validate'),
+    path('invitations/manage/<str:code>/', InvitationParticipantsView.as_view(), name='invitation-participants'),
+    path('invitations/manage/<str:code>/revoke-all/', InvitationRevokeAllView.as_view(), name='invitation-revoke-all'),
     path('invitations/accept/', AcceptInvitationView.as_view(), name='invitation-accept'),
 
     # Guest Access endpoints

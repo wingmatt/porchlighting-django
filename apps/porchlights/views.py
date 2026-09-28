@@ -20,6 +20,7 @@ from .models import (
     PorchlightMember,
     PorchlightRole,
     Rsvp,
+    generate_invitation_code,
 )
 from .permissions import (
     HasPorchlightAccess,
@@ -250,6 +251,17 @@ class ValidateInvitationView(APIView):
                 or Permission.objects.filter(porchlight=invitation.porchlight, user=request.user).exists()
             )
         )
+        can_manage = bool(
+            request.user.is_authenticated
+            and (
+                invitation.porchlight.owner_id == request.user.id
+                or Permission.objects.filter(
+                    porchlight=invitation.porchlight,
+                    user=request.user,
+                    role__in=['owner', 'edit'],
+                ).exists()
+            )
+        )
         return Response(
             {
                 'id': str(invitation.id),
@@ -269,10 +281,110 @@ class ValidateInvitationView(APIView):
                 'expires_at': invitation.expires_at,
                 'active_until': invitation.active_until,
                 'has_permission': has_permission,
+                'can_manage': can_manage,
                 'porchlight': PorchlightSerializer(invitation.porchlight, context={'request': request}).data,
             },
             status=status.HTTP_200_OK,
         )
+
+
+def can_manage_invitation(request, invitation):
+    """Return whether the request user may manage invitation participants."""
+    return bool(
+        request.user.is_authenticated
+        and (
+            invitation.porchlight.owner_id == request.user.id
+            or Permission.objects.filter(
+                porchlight=invitation.porchlight,
+                user=request.user,
+                role__in=['owner', 'edit'],
+            ).exists()
+        )
+    )
+
+
+def invitation_participant_data(invitation):
+    """Serialize accepted users and guests for invitation management."""
+    participants = []
+    permissions = invitation.permissions_granted.select_related('user').all()
+    sessions = {session.guest_token: session for session in invitation.guest_sessions.all()}
+    for permission in permissions:
+        if permission.user_id:
+            participants.append(
+                {
+                    'id': str(permission.id),
+                    'type': 'user',
+                    'email': permission.user.email,
+                    'name': permission.user.full_name,
+                    'role': permission.role,
+                }
+            )
+        elif permission.guest_id:
+            session = sessions.get(permission.guest_id)
+            participants.append(
+                {
+                    'id': str(permission.id),
+                    'type': 'guest',
+                    'guest_token': permission.guest_id,
+                    'name': session.guest_name if session else 'Guest',
+                    'role': permission.role,
+                }
+            )
+    return participants
+
+
+class InvitationParticipantsView(APIView):
+    """List or revoke participants accepted through an invitation."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_invitation(self, code):
+        invitation = Invitation.get_by_sqid(code)
+        if not invitation:
+            raise Http404
+        return invitation
+
+    def get(self, request, code, *args, **kwargs):
+        invitation = self.get_invitation(code)
+        if not can_manage_invitation(request, invitation):
+            return Response({'detail': 'You do not have permission to manage this invitation.'}, status=status.HTTP_403_FORBIDDEN)
+        return Response({'participants': invitation_participant_data(invitation), 'code': invitation.code})
+
+    def delete(self, request, code, *args, **kwargs):
+        invitation = self.get_invitation(code)
+        if not can_manage_invitation(request, invitation):
+            return Response({'detail': 'You do not have permission to manage this invitation.'}, status=status.HTTP_403_FORBIDDEN)
+
+        permission = invitation.permissions_granted.filter(pk=request.data.get('permission_id')).first()
+        if not permission:
+            return Response({'detail': 'Participant not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if permission.guest_id:
+            GuestSession.objects.filter(invitation=invitation, guest_token=permission.guest_id).delete()
+        permission.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class InvitationRevokeAllView(APIView):
+    """Revoke all invitation participants and rotate its invitation code."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, code, *args, **kwargs):
+        invitation = Invitation.get_by_sqid(code)
+        if not invitation:
+            raise Http404
+        if not can_manage_invitation(request, invitation):
+            return Response({'detail': 'You do not have permission to manage this invitation.'}, status=status.HTTP_403_FORBIDDEN)
+
+        with transaction.atomic():
+            invitation.permissions_granted.all().delete()
+            invitation.guest_sessions.all().delete()
+            invitation.code = generate_invitation_code()
+            invitation.uses_count = 0
+            invitation.is_active = True
+            invitation.save(update_fields=['code', 'uses_count', 'is_active', 'updated_at'])
+
+        return Response({'code': invitation.code, 'sqid': invitation.sqid, 'participants': []})
 
 
 class AcceptInvitationView(APIView):

@@ -309,6 +309,58 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertFalse(active_data['is_expired'])
         self.assertTrue(invitations[str(expired_invitation.id)]['is_expired'])
 
+    def test_invitation_owner_can_list_and_revoke_participants(self):
+        invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.MEMBER,
+            is_guest=True,
+            max_uses=0,
+        )
+        user_permission = Permission.objects.create(
+            porchlight=self.porchlight,
+            user=self.member,
+            role='edit',
+            from_invitation=invitation,
+        )
+        guest = GuestSession.objects.create(invitation=invitation, guest_name='Party Guest')
+        guest_permission = Permission.objects.create(
+            porchlight=self.porchlight,
+            guest_id=guest.guest_token,
+            role='view',
+            from_invitation=invitation,
+        )
+
+        self.client.force_authenticate(user=self.owner)
+        manage_url = reverse('porchlights:invitation-participants', kwargs={'code': invitation.sqid})
+        response = self.client.get(manage_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({item['type'] for item in response.data['participants']}, {'user', 'guest'})
+
+        response = self.client.delete(manage_url, {'permission_id': str(user_permission.id)}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Permission.objects.filter(pk=user_permission.id).exists())
+
+        response = self.client.delete(manage_url, {'permission_id': str(guest_permission.id)}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(GuestSession.objects.filter(pk=guest.id).exists())
+
+    def test_edit_user_can_revoke_all_and_rotate_invitation_code(self):
+        invitation = Invitation.objects.create(porchlight=self.porchlight, invited_by=self.owner, max_uses=1)
+        Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit', from_invitation=invitation)
+        old_code = invitation.code
+        self.client.force_authenticate(user=self.member)
+
+        response = self.client.post(
+            reverse('porchlights:invitation-revoke-all', kwargs={'code': invitation.sqid}),
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        invitation.refresh_from_db()
+        self.assertNotEqual(invitation.code, old_code)
+        self.assertEqual(invitation.uses_count, 0)
+        self.assertFalse(Permission.objects.filter(from_invitation=invitation).exists())
+
     def test_firebase_payload_contains_permissions(self):
         PorchlightMember.objects.create(
             porchlight=self.porchlight,
