@@ -1,6 +1,9 @@
 """Tests for Core utilities and Firebase connection."""
+from unittest.mock import patch
+
 from django.conf import settings
 from django.test import TestCase
+from apps.core import firebase as firebase_helpers
 from apps.core.firebase import (
     create_firebase_custom_token,
     delete_porchlight_from_firebase,
@@ -13,6 +16,13 @@ from apps.core.firebase import (
 class CoreFirebaseTests(TestCase):
     """Test modular settings and Firebase connectivity/helpers."""
 
+    def setUp(self):
+        firebase_helpers._firebase_app = None
+
+    def tearDown(self):
+        firebase_helpers._firebase_app = None
+        super().tearDown()
+
     def test_modular_settings_loaded(self):
         self.assertEqual(settings.AUTH_USER_MODEL, 'accounts.User')
         self.assertIn('apps.accounts', settings.INSTALLED_APPS)
@@ -20,20 +30,42 @@ class CoreFirebaseTests(TestCase):
         self.assertIn('apps.core', settings.INSTALLED_APPS)
         self.assertTrue(hasattr(settings, 'FIREBASE_PROJECT_ID'))
 
-    def test_firebase_initialization(self):
-        app = get_firebase_app()
-        self.assertIsNotNone(app)
+    @patch('firebase_admin._apps', new={})
+    @patch('firebase_admin.credentials.ApplicationDefault')
+    @patch('firebase_admin.initialize_app')
+    def test_firebase_initialization_is_mocked(self, initialize_app, application_default):
+        mocked_app = object()
+        application_default.return_value = object()
+        initialize_app.return_value = mocked_app
 
-    def test_sync_porchlight_to_firebase_call(self):
+        app = get_firebase_app()
+        self.assertIs(app, mocked_app)
+        application_default.assert_called_once_with()
+        initialize_app.assert_called_once()
+
+    @patch('firebase_admin._apps', new={})
+    @patch('firebase_admin.credentials.ApplicationDefault', side_effect=Exception('no test credentials'))
+    @patch('firebase_admin.initialize_app')
+    def test_firebase_initialization_without_credentials_returns_none(
+        self, initialize_app, application_default
+    ):
+        self.assertIsNone(get_firebase_app())
+        application_default.assert_called_once_with()
+        initialize_app.assert_not_called()
+
+    @patch('apps.core.firebase.get_firebase_app', return_value=None)
+    def test_sync_porchlight_to_firebase_call(self, get_app):
         result = sync_porchlight_to_firebase('test-uuid-1234', {'is_on': True, 'brightness': 80})
         # In test / dev mode without active Firebase credentials it safely handles or syncs
         self.assertIsInstance(result, bool)
 
-    def test_delete_porchlight_from_firebase_call(self):
+    @patch('apps.core.firebase.get_firebase_app', return_value=None)
+    def test_delete_porchlight_from_firebase_call(self, get_app):
         result = delete_porchlight_from_firebase('test-uuid-1234')
         self.assertIsInstance(result, bool)
 
-    def test_create_firebase_custom_token_call(self):
+    @patch('apps.core.firebase.get_firebase_app', return_value=None)
+    def test_create_firebase_custom_token_call(self, get_app):
         result = create_firebase_custom_token('user-123', {'test': True})
         # Either returns a string token or None (if service account is missing)
         self.assertTrue(result is None or isinstance(result, str))
@@ -43,6 +75,7 @@ class CoreFirebaseTests(TestCase):
         self.assertEqual(result.get('success_count'), 0)
         self.assertEqual(result.get('failure_count'), 0)
 
-    def test_send_fcm_multicast_with_tokens(self):
+    @patch('apps.core.firebase.get_firebase_app', return_value=None)
+    def test_send_fcm_multicast_with_tokens(self, get_app):
         result = send_fcm_multicast(['fake-token-1'], title='Test', body='Body')
         self.assertIn('failure_count', result)

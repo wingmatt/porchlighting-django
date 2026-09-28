@@ -37,17 +37,13 @@ def get_firebase_app():
             _firebase_app = firebase_admin.initialize_app(cred, options)
             logger.info("Firebase initialized with service account certificate: %s", cred_path)
         else:
-            # Fallback for dev / environment without explicit service account file
             try:
                 cred = credentials.ApplicationDefault()
                 _firebase_app = firebase_admin.initialize_app(cred, options)
                 logger.info("Firebase initialized with ApplicationDefault credentials")
-            except Exception:
-                # Initialize unauthenticated / mock-ready app for dev
-                _firebase_app = firebase_admin.initialize_app(options=options)
-                logger.warning(
-                    "Firebase initialized with default configuration (unauthenticated / development mode)."
-                )
+            except Exception as exc:
+                logger.info("Firebase credentials are unavailable: %s", exc)
+                return None
 
         return _firebase_app
     except Exception as e:
