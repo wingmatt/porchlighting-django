@@ -78,6 +78,27 @@ class PorchlightListCreateView(generics.ListCreateAPIView):
         serializer.save(owner=self.request.user)
 
 
+class NeighborhoodListView(generics.ListAPIView):
+    """List every Porchlight accessible to the current user or guest."""
+
+    serializer_class = PorchlightSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        user = self.request.user if self.request.user and self.request.user.is_authenticated else None
+        guest_token = getattr(self.request, 'guest_token', None) or self.request.headers.get('X-Guest-Token')
+        access_filter = Q()
+        if user:
+            access_filter |= (
+                Q(owner=user)
+                | Q(memberships__user=user)
+                | Q(permission_grants__user=user)
+            )
+        if guest_token:
+            access_filter |= Q(permission_grants__guest_id=guest_token)
+        return Porchlight.objects.filter(access_filter).distinct() if access_filter else Porchlight.objects.none()
+
+
 class GeocodeAddressView(APIView):
     """Resolve a street address through Geocodio without exposing its API key."""
 

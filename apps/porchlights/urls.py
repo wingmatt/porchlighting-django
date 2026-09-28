@@ -11,6 +11,7 @@ from .views import (
     InvitationListCreateView,
     InvitationParticipantsView,
     InvitationRevokeAllView,
+    NeighborhoodListView,
     PermissionListCreateView,
     PorchlightControlView,
     PorchlightDetailView,
@@ -26,6 +27,7 @@ app_name = 'porchlights'
 
 urlpatterns = [
     path('porchlights/geocode/', GeocodeAddressView.as_view(), name='porchlight-geocode'),
+    path('neighborhood/', NeighborhoodListView.as_view(), name='neighborhood-list'),
     # Porchlight endpoints
     path('porchlights/', PorchlightListCreateView.as_view(), name='porchlight-list-create'),
     path('porchlights/<str:pk>/', PorchlightDetailView.as_view(), name='porchlight-detail'),

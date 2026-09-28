@@ -47,6 +47,50 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(response.data[0]['user_role'], 'OWNER')
         self.assertEqual(response.data[0]['sqid'], self.porchlight.sqid)
 
+    def test_neighborhood_lists_user_owned_and_granted_porchlights(self):
+        owned_porchlight = Porchlight.objects.create(name='Owned Porch', owner=self.member)
+        member_porchlight = Porchlight.objects.create(name='Member Porch', owner=self.owner)
+        permission_porchlight = Porchlight.objects.create(name='Permission Porch', owner=self.owner)
+        hidden = Porchlight.objects.create(name='Hidden Porch', owner=self.stranger)
+        PorchlightMember.objects.create(porchlight=member_porchlight, user=self.member)
+        Permission.objects.create(porchlight=permission_porchlight, user=self.member, role='view')
+
+        self.client.force_authenticate(user=self.member)
+        response = self.client.get(reverse('porchlights:neighborhood-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item['name'] for item in response.data},
+            {owned_porchlight.name, member_porchlight.name, permission_porchlight.name},
+        )
+        self.assertNotIn(hidden.name, {item['name'] for item in response.data})
+
+    def test_neighborhood_lists_guest_permission_and_not_other_porchlights(self):
+        invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            is_guest=True,
+            max_uses=0,
+        )
+        guest = GuestSession.objects.create(invitation=invitation)
+        Permission.objects.create(porchlight=self.porchlight, guest_id=guest.guest_token, role='view')
+        other = Porchlight.objects.create(name='Other Porch', owner=self.stranger)
+        Permission.objects.create(porchlight=other, guest_id='another-guest', role='view')
+
+        response = self.client.get(
+            reverse('porchlights:neighborhood-list'),
+            HTTP_X_GUEST_TOKEN=guest.guest_token,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['name'] for item in response.data], [self.porchlight.name])
+
+    def test_neighborhood_is_empty_without_access_context(self):
+        response = self.client.get(reverse('porchlights:neighborhood-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
     @patch('apps.porchlights.views.settings.GEOCODIO_API_KEY', 'test-key')
     @patch('apps.porchlights.views.Geocodio')
     def test_geocode_address_returns_coordinates(self, mock_geocodio):
