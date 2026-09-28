@@ -370,6 +370,7 @@ class Permission(models.Model):
         on_delete=models.CASCADE,
     )
     guest_id = models.CharField(max_length=255, null=True, blank=True)
+    guest_name = models.CharField(max_length=100, null=True, blank=True)
     role = models.CharField(max_length=50)  # 'owner', 'edit', 'share', 'view'
     from_invitation = models.ForeignKey(
         Invitation,

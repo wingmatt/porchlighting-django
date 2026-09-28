@@ -338,6 +338,45 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertTrue(self.porchlight.is_on)
         self.assertEqual(self.porchlight.color, '#00FF00')
 
+    def test_guest_can_accept_regular_invitation_reuse_token_and_is_named(self):
+        first_invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.GUEST,
+            max_uses=0,
+        )
+        guest_access_url = reverse('porchlights:guest-access')
+        first_response = self.client.post(
+            guest_access_url,
+            {'invitation_code': first_invitation.code, 'guest_name': 'Taylor'},
+            format='json',
+        )
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        guest_token = first_response.data['guest_token']
+
+        second_invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.GUEST,
+            max_uses=0,
+        )
+        second_response = self.client.post(
+            guest_access_url,
+            {'invitation_code': second_invitation.code},
+            format='json',
+            HTTP_X_GUEST_TOKEN=guest_token,
+        )
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.data['guest_token'], guest_token)
+        self.assertEqual(second_response.data['guest_name'], 'Taylor')
+
+        self.client.force_authenticate(user=self.owner)
+        participants_response = self.client.get(
+            reverse('porchlights:invitation-participants', kwargs={'code': second_invitation.sqid})
+        )
+        self.assertEqual(participants_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(participants_response.data['participants'][0]['name'], 'Taylor')
+
     def test_expired_invitation_rejection(self):
         expired_invitation = Invitation.objects.create(
             porchlight=self.porchlight,

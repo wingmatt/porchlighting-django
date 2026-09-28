@@ -33,6 +33,7 @@ class PermissionSerializer(serializers.ModelSerializer):
     """Serializer for permission grants matching Laravel Permission model."""
 
     user_email = serializers.EmailField(source='user.email', read_only=True)
+    guest_name = serializers.CharField(read_only=True)
     beacon_id = serializers.UUIDField(source='porchlight.id', read_only=True)
 
     class Meta:
@@ -44,6 +45,7 @@ class PermissionSerializer(serializers.ModelSerializer):
             'user',
             'user_email',
             'guest_id',
+            'guest_name',
             'role',
             'from_invitation',
             'created_at',
@@ -339,7 +341,7 @@ class GuestAccessSerializer(serializers.Serializer):
     """Serializer for initializing a guest session using an invitation code."""
 
     invitation_code = serializers.CharField(max_length=64)
-    guest_name = serializers.CharField(max_length=100, required=False, default='Guest')
+    guest_name = serializers.CharField(max_length=100, required=False, default='')
 
     def validate_invitation_code(self, value):
         invitation = Invitation.get_by_sqid(value)
@@ -348,8 +350,5 @@ class GuestAccessSerializer(serializers.Serializer):
 
         if not invitation.is_valid():
             raise serializers.ValidationError('This invitation has expired or has already reached maximum uses.')
-
-        if not invitation.is_guest:
-            raise serializers.ValidationError('This invitation is reserved for registered users. Please log in.')
 
         return value

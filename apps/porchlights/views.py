@@ -367,7 +367,7 @@ def invitation_participant_data(invitation):
                     'id': str(permission.id),
                     'type': 'guest',
                     'guest_token': permission.guest_id,
-                    'name': session.guest_name if session else 'Guest',
+                    'name': permission.guest_name or (session.guest_name if session else 'Guest'),
                     'role': permission.role,
                 }
             )
@@ -492,23 +492,35 @@ class GuestAccessView(APIView):
         serializer.is_valid(raise_exception=True)
 
         invitation_code = serializer.validated_data['invitation_code']
-        guest_name = serializer.validated_data.get('guest_name', 'Guest')
+        guest_token = request.headers.get('X-Guest-Token')
         invitation = Invitation.get_by_sqid(invitation_code)
         if not invitation:
             return Response({'error': 'Invitation not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Create guest session
-        session = GuestSession.objects.create(
-            invitation=invitation,
-            guest_name=guest_name,
-        )
+        session = GuestSession.objects.filter(guest_token=guest_token).first() if guest_token else None
+        if guest_token and (not session or not session.is_valid()):
+            return Response({'error': 'This guest session is no longer valid.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        guest_name = session.guest_name if session else serializer.validated_data.get('guest_name', '').strip()
+        if not guest_name:
+            return Response({'error': 'A name is required to join as a guest.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not session:
+            session = GuestSession.objects.create(
+                invitation=invitation,
+                guest_name=guest_name,
+            )
+            guest_token = session.guest_token
 
         # Also record permission grant for guest
-        Permission.objects.create(
+        Permission.objects.get_or_create(
             porchlight=invitation.porchlight,
-            guest_id=session.guest_token,
-            role=invitation.role_granted,
+            guest_id=guest_token,
             from_invitation=invitation,
+            defaults={
+                'guest_name': guest_name,
+                'role': invitation.role_granted,
+            },
         )
 
         invitation.record_usage()
@@ -519,8 +531,8 @@ class GuestAccessView(APIView):
 
         return Response(
             {
-                'guest_token': session.guest_token,
-                'guest_name': session.guest_name,
+                'guest_token': guest_token,
+                'guest_name': guest_name,
                 'role': invitation.role,
                 'role_granted': invitation.role_granted,
                 'porchlight': PorchlightSerializer(invitation.porchlight).data,
