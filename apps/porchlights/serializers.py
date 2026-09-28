@@ -186,6 +186,10 @@ class InvitationSerializer(serializers.ModelSerializer):
     invited_by_email = serializers.EmailField(source='invited_by.email', read_only=True)
     user_email = serializers.EmailField(source='user.email', read_only=True)
     is_valid = serializers.BooleanField(read_only=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    accepted_users_count = serializers.IntegerField(read_only=True)
+    accepted_guests_count = serializers.IntegerField(read_only=True)
+    accepted_count = serializers.IntegerField(read_only=True)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
     sqid = serializers.CharField(read_only=True)
     role_granted = serializers.CharField(read_only=True)
@@ -217,6 +221,10 @@ class InvitationSerializer(serializers.ModelSerializer):
             'active_until',
             'is_active',
             'is_valid',
+            'is_expired',
+            'accepted_users_count',
+            'accepted_guests_count',
+            'accepted_count',
             'created_at',
             'updated_at',
         ]

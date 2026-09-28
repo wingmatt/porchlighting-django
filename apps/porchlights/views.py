@@ -202,10 +202,21 @@ class InvitationListCreateView(generics.ListCreateAPIView):
             | Q(porchlight__memberships__user=user, porchlight__memberships__role=PorchlightRole.ADMIN)
             | Q(porchlight__permission_grants__user=user, porchlight__permission_grants__role__in=['owner', 'edit', 'share', 'admin'])
         ).filter(
-            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
-            is_active=True,
-        ).filter(
-            Q(max_uses=0) | Q(uses_count__lt=models.F('max_uses'))
+            Q(
+                Q(is_active=True)
+                & (Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+                & (Q(max_uses=0) | Q(uses_count__lt=models.F('max_uses'))),
+            )
+            | Q(expires_at__lt=timezone.now())
+        ).annotate(
+            accepted_users_count=models.Count(
+                'permissions_granted__user',
+                filter=Q(permissions_granted__user__isnull=False),
+                distinct=True,
+            ),
+            accepted_guests_count=models.Count('guest_sessions', distinct=True),
+        ).annotate(
+            accepted_count=models.F('accepted_users_count') + models.F('accepted_guests_count'),
         ).distinct()
 
         if porchlight_id:

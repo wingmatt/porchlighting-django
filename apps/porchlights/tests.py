@@ -147,7 +147,7 @@ class PorchlightAndPermissionTests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_edit_and_share_permissions_can_manage_active_invitations(self):
+    def test_edit_and_share_permissions_can_manage_invitations(self):
         Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit')
         expired = Invitation.objects.create(
             porchlight=self.porchlight,
@@ -173,7 +173,7 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         invitation_ids = {item['id'] for item in response.data}
         self.assertIn(str(active.id), invitation_ids)
-        self.assertNotIn(str(expired.id), invitation_ids)
+        self.assertIn(str(expired.id), invitation_ids)
         self.assertNotIn(str(inactive.id), invitation_ids)
 
         create_response = self.client.post(
@@ -268,6 +268,46 @@ class PorchlightAndPermissionTests(TestCase):
             format='json',
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invitation_list_includes_expired_and_acceptance_counts(self):
+        active_invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.MEMBER,
+            is_guest=False,
+            max_uses=0,
+        )
+        expired_invitation = Invitation.objects.create(
+            porchlight=self.porchlight,
+            invited_by=self.owner,
+            role=PorchlightRole.GUEST,
+            is_guest=True,
+            expires_at=timezone.now() - datetime.timedelta(days=1),
+        )
+        Permission.objects.create(
+            porchlight=self.porchlight,
+            user=self.member,
+            role='edit',
+            from_invitation=active_invitation,
+        )
+        GuestSession.objects.create(invitation=active_invitation, guest_name='Party Guest')
+
+        self.client.force_authenticate(user=self.member)
+        response = self.client.get(
+            reverse('porchlights:invitation-list-create'),
+            {'porchlight': self.porchlight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        invitations = {item['id']: item for item in response.data}
+        self.assertIn(str(active_invitation.id), invitations)
+        self.assertIn(str(expired_invitation.id), invitations)
+        active_data = invitations[str(active_invitation.id)]
+        self.assertEqual(active_data['accepted_users_count'], 1)
+        self.assertEqual(active_data['accepted_guests_count'], 1)
+        self.assertEqual(active_data['accepted_count'], 2)
+        self.assertFalse(active_data['is_expired'])
+        self.assertTrue(invitations[str(expired_invitation.id)]['is_expired'])
 
     def test_firebase_payload_contains_permissions(self):
         PorchlightMember.objects.create(
