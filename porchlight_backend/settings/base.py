@@ -1,6 +1,7 @@
 """Base settings shared across all environments."""
 import os
 from pathlib import Path
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -43,6 +44,8 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'apps.accounts.middleware.GuestAuthMiddleware',
 ]
+
+CORS_ALLOW_HEADERS = (*default_headers, 'x-guest-name', 'x-guest-token')
 
 ROOT_URLCONF = 'porchlight_backend.urls'
 

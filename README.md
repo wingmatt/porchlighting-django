@@ -63,6 +63,9 @@ DEFAULT_FROM_EMAIL=no-reply@porchlight.local
 # Optional override for the link included in confirmation emails
 # EMAIL_CONFIRMATION_URL=http://127.0.0.1:8000/api/auth/confirm-email/{uid}/{token}/
 
+# Optional comma-separated CORS origins (development defaults include the local web app and Capacitor)
+# CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+
 # Optional production observability
 # SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
 # SENTRY_ENVIRONMENT=production

@@ -5,8 +5,17 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
-# Development CORS settings
-CORS_ALLOW_ALL_ORIGINS = True
+# Development CORS settings. Keep the list explicit so credentialed requests
+# are limited to the local web and Capacitor frontends.
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        'CORS_ALLOWED_ORIGINS',
+        'http://localhost:5173,http://127.0.0.1:5173,http://localhost,capacitor://localhost,ionic://localhost',
+    ).split(',')
+    if origin.strip()
+]
 CORS_ALLOW_CREDENTIALS = True
 
 # Development database configuration

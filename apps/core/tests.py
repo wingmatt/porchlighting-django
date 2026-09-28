@@ -2,7 +2,7 @@
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import TestCase
+from django.test import Client, TestCase
 from apps.core import firebase as firebase_helpers
 from apps.core.firebase import (
     create_firebase_custom_token,
@@ -29,6 +29,27 @@ class CoreFirebaseTests(TestCase):
         self.assertIn('apps.porchlights', settings.INSTALLED_APPS)
         self.assertIn('apps.core', settings.INSTALLED_APPS)
         self.assertTrue(hasattr(settings, 'FIREBASE_PROJECT_ID'))
+
+    def test_cors_allows_frontend_origins(self):
+        self.assertFalse(settings.CORS_ALLOW_ALL_ORIGINS)
+        self.assertTrue(settings.CORS_ALLOW_CREDENTIALS)
+        self.assertIn('http://localhost:5173', settings.CORS_ALLOWED_ORIGINS)
+        self.assertIn('http://127.0.0.1:5173', settings.CORS_ALLOWED_ORIGINS)
+        self.assertIn('http://localhost', settings.CORS_ALLOWED_ORIGINS)
+        self.assertIn('capacitor://localhost', settings.CORS_ALLOWED_ORIGINS)
+
+    def test_cors_preflight_allows_guest_headers(self):
+        response = Client().options(
+            '/api/porchlights/EfhxLZ9c/',
+            HTTP_ORIGIN='http://localhost:5173',
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='GET',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='x-guest-name,x-guest-token',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        allowed_headers = response.headers['Access-Control-Allow-Headers']
+        self.assertIn('x-guest-name', allowed_headers)
+        self.assertIn('x-guest-token', allowed_headers)
 
     @patch('firebase_admin._apps', new={})
     @patch('firebase_admin.credentials.ApplicationDefault')
