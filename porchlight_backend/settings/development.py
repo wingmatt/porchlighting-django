@@ -2,6 +2,7 @@
 from .base import *  # noqa: F401, F403
 
 DEBUG = True
+ADMIN_ENABLED = True
 
 ALLOWED_HOSTS = ['*']
 

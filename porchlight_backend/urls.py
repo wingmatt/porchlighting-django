@@ -62,11 +62,13 @@ def api_root_view(request):
 
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
     path('api/', api_root_view, name='api-root'),
     path('api/auth/', include('apps.accounts.urls', namespace='accounts')),
     path('api/', include('apps.porchlights.urls', namespace='porchlights')),
 ]
+
+if settings.ADMIN_ENABLED:
+    urlpatterns += [path('admin/', admin.site.urls)]
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
