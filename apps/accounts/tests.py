@@ -166,7 +166,7 @@ class AuthAPITests(TestCase):
         user = User.objects.create_user(email='fbuser@example.com', password='Password123!')
         self.client.force_authenticate(user=user)
         url = reverse('accounts:firebase-token')
-        res = self.client.get(url)
+        res = self.client.post(url, format='json')
         # Firebase custom token generation may fail if credentials aren't present in test env or succeed if mock/dev
         self.assertIn(res.status_code, [status.HTTP_200_OK, status.HTTP_503_SERVICE_UNAVAILABLE])
 

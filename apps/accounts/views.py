@@ -31,6 +31,7 @@ class RegisterView(generics.CreateAPIView):
     """Register a new user with email and password."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'auth'
     serializer_class = RegisterSerializer
 
     def create(self, request, *args, **kwargs):
@@ -92,6 +93,7 @@ class LoginView(APIView):
     """Authenticate a user using email and password, returning an API token."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'auth'
 
     def post(self, request, *args, **kwargs):
         serializer = LoginSerializer(data=request.data, context={'request': request})
@@ -114,6 +116,7 @@ class PasswordResetRequestView(APIView):
     """Send a password reset link without revealing whether an address exists."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'auth'
 
     def post(self, request, *args, **kwargs):
         email = request.data.get('email', '').strip().lower()
@@ -135,6 +138,7 @@ class PasswordResetConfirmView(APIView):
     """Set a new password using a one-time reset token."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'auth'
 
     def post(self, request, uidb64, token, *args, **kwargs):
         try:
@@ -161,6 +165,7 @@ class MagicLoginRequestView(APIView):
     """Send a one-time passwordless login link."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'auth'
 
     def post(self, request, *args, **kwargs):
         email = request.data.get('email', '').strip().lower()
@@ -182,6 +187,7 @@ class MagicLoginConfirmView(APIView):
     """Exchange a one-time magic login token for a DRF API token."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'auth'
 
     def get(self, request, uidb64, token, *args, **kwargs):
         try:
@@ -222,6 +228,7 @@ class FirebaseCustomTokenView(APIView):
     """Mint a Firebase Custom Auth Token for authenticated users or guest tokens."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'auth'
 
     def post(self, request, *args, **kwargs):
         if request.user and request.user.is_authenticated:
@@ -257,10 +264,6 @@ class FirebaseCustomTokenView(APIView):
             )
 
         return Response({'firebase_token': firebase_token, 'uid': uid}, status=status.HTTP_200_OK)
-
-    def get(self, request, *args, **kwargs):
-        return self.post(request, *args, **kwargs)
-
 
 class FCMDeviceRegisterView(APIView):
     """Register or update an FCM device token for push notifications."""

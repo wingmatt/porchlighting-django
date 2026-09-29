@@ -1,17 +1,28 @@
 """Production settings for Porchlight Django."""
 import os
 from .base import *  # noqa: F401, F403
+from django.core.exceptions import ImproperlyConfigured
 
 DEBUG = False
 ADMIN_ENABLED = False
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
+ALLOWED_HOSTS = [host.strip() for host in os.getenv('ALLOWED_HOSTS', '').split(',') if host.strip()]
+if not ALLOWED_HOSTS:
+    raise ImproperlyConfigured('ALLOWED_HOSTS must contain the public API hostnames in production.')
+
+if not SECRET_KEY or SECRET_KEY == 'insecure-django-dev-secret-key-change-in-prod':
+    raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set to a unique secret in production.')
 
 # Strict CORS settings
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     origin.strip() for origin in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if origin.strip()
 ]
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip() for origin in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if origin.strip()
+]
+if not CSRF_TRUSTED_ORIGINS:
+    raise ImproperlyConfigured('CSRF_TRUSTED_ORIGINS must list the HTTPS frontend origins in production.')
 
 # Database configuration for PostgreSQL with PostGIS in production
 DATABASES = {
@@ -59,6 +70,7 @@ X_FRAME_OPTIONS = 'DENY'
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # SendGrid SMTP configuration. The API key is supplied as the SMTP password
 # and must never be committed to source control.

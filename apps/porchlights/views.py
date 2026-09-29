@@ -486,6 +486,7 @@ class GuestAccessView(APIView):
     """Obtain guest access session and token using an invitation code or Sqid."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'guest'
 
     def post(self, request, *args, **kwargs):
         serializer = GuestAccessSerializer(data=request.data)
