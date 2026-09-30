@@ -47,6 +47,10 @@ staticfiles/
 !.env.example
 *.key
 *.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
 *credentials*.json
 firebase-adminsdk*.json
 service-account*.json
