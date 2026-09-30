@@ -311,7 +311,7 @@ class Invitation(models.Model):
 
     @property
     def sqid(self) -> str:
-        """URL-safe Sqids encoding for invitation ID."""
+        """URL-safe Sqids encoding for invitation ID, without a route prefix."""
         num = self.numeric_id
         if num is None:
             num = (self.id.int % 2147483647) if isinstance(self.id, uuid.UUID) else int(self.id)

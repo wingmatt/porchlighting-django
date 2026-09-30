@@ -473,6 +473,7 @@ class PorchlightAndPermissionTests(TestCase):
         invitation = Invitation.objects.create(porchlight=self.porchlight, invited_by=self.owner, max_uses=1)
         Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit', from_invitation=invitation)
         old_code = invitation.code
+        old_sqid = invitation.sqid
         self.client.force_authenticate(user=self.member)
 
         response = self.client.post(
@@ -482,6 +483,10 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         invitation.refresh_from_db()
         self.assertNotEqual(invitation.code, old_code)
+        self.assertNotEqual(invitation.sqid, old_sqid)
+        self.assertEqual(response.data['sqid'], invitation.sqid)
+        self.assertIsNone(Invitation.get_by_sqid(old_sqid))
+        self.assertEqual(Invitation.get_by_sqid(invitation.sqid).id, invitation.id)
         self.assertEqual(invitation.uses_count, 0)
         self.assertFalse(Permission.objects.filter(from_invitation=invitation).exists())
 
@@ -572,6 +577,7 @@ class PorchlightAndPermissionTests(TestCase):
         )
         sqid = invitation.sqid
         self.assertIsNotNone(sqid)
+        self.assertNotIn('/join/', sqid)
         found_invitation = Invitation.get_by_sqid(sqid)
         self.assertEqual(found_invitation.id, invitation.id)
 

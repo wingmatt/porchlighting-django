@@ -420,10 +420,12 @@ class InvitationRevokeAllView(APIView):
         with transaction.atomic():
             invitation.permissions_granted.all().delete()
             invitation.guest_sessions.all().delete()
+            max_numeric_id = Invitation.objects.aggregate(max_id=models.Max('numeric_id'))['max_id'] or 0
+            invitation.numeric_id = max_numeric_id + 1
             invitation.code = generate_invitation_code()
             invitation.uses_count = 0
             invitation.is_active = True
-            invitation.save(update_fields=['code', 'uses_count', 'is_active', 'updated_at'])
+            invitation.save(update_fields=['numeric_id', 'code', 'uses_count', 'is_active', 'updated_at'])
 
         return Response({'code': invitation.code, 'sqid': invitation.sqid, 'participants': []})
 
