@@ -181,13 +181,43 @@ class AuthAPITests(TestCase):
     def test_web_push_subscription_registration_authenticated_user(self):
         user = User.objects.create_user(email='webpush@example.com', password='Password123!')
         self.client.force_authenticate(user=user)
-        response = self.client.post(reverse('accounts:web-push-register'), {
+        payload = {
             'endpoint': 'https://push.example.test/subscription/1',
             'p256dh': 'public-key',
             'auth': 'auth-secret',
-        }, format='json')
+        }
+        response = self.client.post(reverse('accounts:web-push-register'), payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(WebPushSubscription.objects.filter(user=user).exists())
+
+        response = self.client.post(reverse('accounts:web-push-register'), payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        WebPushSubscription.objects.filter(endpoint=payload['endpoint']).update(is_active=False)
+        response = self.client.post(reverse('accounts:web-push-register'), payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription = WebPushSubscription.objects.get(endpoint=payload['endpoint'])
+        self.assertTrue(subscription.is_active)
+        self.assertEqual(subscription.user, user)
+
+    def test_web_push_subscription_can_be_unregistered(self):
+        user = User.objects.create_user(email='webpush-off@example.com', password='Password123!')
+        self.client.force_authenticate(user=user)
+        endpoint = 'https://push.example.test/subscription/off'
+        WebPushSubscription.objects.create(
+            user=user,
+            endpoint=endpoint,
+            p256dh='public-key',
+            auth='auth-secret',
+        )
+
+        response = self.client.post(
+            reverse('accounts:web-push-unregister'),
+            {'endpoint': endpoint},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(WebPushSubscription.objects.get(endpoint=endpoint).is_active)
 
     def test_web_push_subscription_requires_guest_or_user(self):
         response = self.client.post(reverse('accounts:web-push-register'), {

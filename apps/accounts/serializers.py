@@ -94,6 +94,9 @@ class WebPushSubscriptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = WebPushSubscription
         fields = ['endpoint', 'p256dh', 'auth']
+        extra_kwargs = {
+            'endpoint': {'validators': []},  # Allow update_or_create on an existing browser subscription
+        }
 
     def validate_endpoint(self, value):
         if not value.startswith('https://'):
