@@ -25,7 +25,7 @@ class Porchlight(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     numeric_id = models.PositiveIntegerField(unique=True, null=True, blank=True, db_index=True)
     name = models.CharField(max_length=255, help_text=_('Friendly name of the porchlight or beacon'))
-    type = models.CharField(max_length=100, default='default', help_text=_('Type of beacon/porchlight'))
+    type = models.CharField(max_length=100, default='virtual', help_text=_('Type of beacon/porchlight'))
     active_duration = models.IntegerField(default=4, help_text=_('Active duration in hours'))
     active_until = models.DateTimeField(null=True, blank=True, help_text=_('Active expiration timestamp'))
     location = models.JSONField(
