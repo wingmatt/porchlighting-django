@@ -213,6 +213,53 @@ class PorchlightAndPermissionTests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_access_manager_can_list_update_and_remove_users_and_guests(self):
+        invitation = Invitation.objects.create(porchlight=self.porchlight, invited_by=self.owner)
+        guest_permission = Permission.objects.create(
+            porchlight=self.porchlight,
+            guest_id='guest-token',
+            guest_name='Guest One',
+            role='view',
+            from_invitation=invitation,
+        )
+        user_permission = Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit')
+        self.client.force_authenticate(user=self.owner)
+        access_url = reverse('porchlights:porchlight-access', kwargs={'pk': self.porchlight.sqid})
+
+        response = self.client.get(access_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({entry['name'] for entry in response.data['access']}, {'Owner', 'Member', 'Guest One'})
+        guest_entry = next(entry for entry in response.data['access'] if entry['type'] == 'guest')
+        self.assertEqual(guest_entry['guest_name'], 'Guest One')
+        self.assertEqual(guest_entry['from_invitation'], str(invitation.id))
+        self.assertEqual(guest_entry['created_at'], guest_permission.created_at.isoformat())
+        owner_entry = next(entry for entry in response.data['access'] if entry['name'] == 'Owner')
+        self.assertIsNone(owner_entry['from_invitation'])
+        self.assertEqual(owner_entry['created_at'], self.porchlight.created_at.isoformat())
+
+        update_url = reverse(
+            'porchlights:porchlight-access-detail',
+            kwargs={'pk': self.porchlight.sqid, 'access_id': user_permission.id},
+        )
+        response = self.client.patch(update_url, {'role': 'share'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user_permission.refresh_from_db()
+        self.assertEqual(user_permission.role, 'share')
+
+        response = self.client.delete(
+            reverse(
+                'porchlights:porchlight-access-detail',
+                kwargs={'pk': self.porchlight.sqid, 'access_id': guest_permission.id},
+            )
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_edit_access_manager_cannot_manage_access(self):
+        Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit')
+        self.client.force_authenticate(user=self.stranger)
+        response = self.client.get(reverse('porchlights:porchlight-access', kwargs={'pk': self.porchlight.sqid}))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_edit_and_share_permissions_can_manage_invitations(self):
         Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit')
         expired = Invitation.objects.create(

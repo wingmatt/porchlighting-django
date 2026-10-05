@@ -344,6 +344,130 @@ def can_manage_invitation(request, invitation):
     )
 
 
+def can_manage_porchlight_access(request, porchlight):
+    """Return whether the request user may manage all access grants."""
+    return bool(
+        request.user.is_authenticated
+        and (
+            porchlight.owner_id == request.user.id
+            or Permission.objects.filter(
+                porchlight=porchlight,
+                user=request.user,
+                role__in=['owner', 'edit'],
+            ).exists()
+        )
+    )
+
+
+def porchlight_access_data(porchlight):
+    """Serialize every user and guest that can access a porchlight."""
+    entries = [{
+        'id': str(porchlight.owner_id),
+        'type': 'user',
+        'email': porchlight.owner.email,
+        'name': porchlight.owner.full_name,
+        'role': 'owner',
+        'source': 'owner',
+        'created_at': porchlight.created_at.isoformat(),
+        'from_invitation': None,
+        'editable': False,
+    }]
+    seen_users = {porchlight.owner_id}
+    for member in porchlight.memberships.select_related('user').all():
+        if member.user_id in seen_users:
+            continue
+        seen_users.add(member.user_id)
+        entries.append({
+            'id': str(member.id),
+            'type': 'user',
+            'email': member.user.email,
+            'name': member.user.full_name,
+            'role': {'OWNER': 'owner', 'ADMIN': 'share', 'MEMBER': 'edit', 'GUEST': 'view'}.get(member.role, 'view'),
+            'source': 'membership',
+            'created_at': member.created_at.isoformat(),
+            'from_invitation': None,
+            'editable': True,
+        })
+    for permission in porchlight.permission_grants.select_related('user').all():
+        if permission.user_id and permission.user_id in seen_users:
+            continue
+        if permission.user_id:
+            seen_users.add(permission.user_id)
+            entries.append({
+                'id': str(permission.id),
+                'type': 'user',
+                'email': permission.user.email,
+                'name': permission.user.full_name,
+                'role': permission.role,
+                'source': 'permission',
+                'created_at': permission.created_at.isoformat(),
+                'from_invitation': str(permission.from_invitation_id) if permission.from_invitation_id else None,
+                'guest_name': None,
+                'editable': True,
+            })
+        elif permission.guest_id:
+            entries.append({
+                'id': str(permission.id),
+                'type': 'guest',
+                'name': permission.guest_name or 'Guest',
+                'role': permission.role,
+                'source': 'permission',
+                'created_at': permission.created_at.isoformat(),
+                'from_invitation': str(permission.from_invitation_id) if permission.from_invitation_id else None,
+                'guest_name': permission.guest_name,
+                'editable': True,
+            })
+    return entries
+
+
+class PorchlightAccessView(APIView):
+    """List and update every user or guest with porchlight access."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_porchlight(self, pk):
+        return get_porchlight_by_sqid_or_404(pk)
+
+    def get(self, request, pk, *args, **kwargs):
+        porchlight = self.get_porchlight(pk)
+        if not can_manage_porchlight_access(request, porchlight):
+            return Response({'detail': 'You do not have permission to manage this porchlight.'}, status=status.HTTP_403_FORBIDDEN)
+        return Response({'access': porchlight_access_data(porchlight)})
+
+    def patch(self, request, pk, access_id, *args, **kwargs):
+        porchlight = self.get_porchlight(pk)
+        if not can_manage_porchlight_access(request, porchlight):
+            return Response({'detail': 'You do not have permission to manage this porchlight.'}, status=status.HTTP_403_FORBIDDEN)
+        role = str(request.data.get('role', '')).lower()
+        if role not in {'view', 'edit', 'share'}:
+            return Response({'role': 'Choose view, edit, or share.'}, status=status.HTTP_400_BAD_REQUEST)
+        permission = porchlight.permission_grants.filter(pk=access_id).first()
+        if permission:
+            permission.role = role
+            permission.save(update_fields=['role', 'updated_at'])
+            return Response(next(item for item in porchlight_access_data(porchlight) if item['id'] == str(permission.id)))
+        member = porchlight.memberships.filter(pk=access_id).first()
+        if member:
+            member.role = {'view': PorchlightRole.GUEST, 'edit': PorchlightRole.MEMBER, 'share': PorchlightRole.ADMIN}[role]
+            member.save(update_fields=['role'])
+            return Response(next(item for item in porchlight_access_data(porchlight) if item['id'] == str(member.id)))
+        return Response({'detail': 'Access entry not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, pk, access_id, *args, **kwargs):
+        porchlight = self.get_porchlight(pk)
+        if not can_manage_porchlight_access(request, porchlight):
+            return Response({'detail': 'You do not have permission to manage this porchlight.'}, status=status.HTTP_403_FORBIDDEN)
+        permission = porchlight.permission_grants.filter(pk=access_id).first()
+        if permission:
+            permission.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        member = porchlight.memberships.filter(pk=access_id).first()
+        if member:
+            member.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({'detail': 'Access entry not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
 def invitation_participant_data(invitation):
     """Serialize accepted users and guests for invitation management."""
     participants = []
