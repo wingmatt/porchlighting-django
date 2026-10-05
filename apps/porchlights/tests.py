@@ -260,6 +260,37 @@ class PorchlightAndPermissionTests(TestCase):
         response = self.client.get(reverse('porchlights:porchlight-access', kwargs={'pk': self.porchlight.sqid}))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_access_manager_can_mark_user_and_guest_as_close(self):
+        guest_permission = Permission.objects.create(
+            porchlight=self.porchlight,
+            guest_id='close-guest-token',
+            guest_name='Close Guest',
+            role='view',
+        )
+        user_permission = Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit')
+        self.client.force_authenticate(user=self.owner)
+        access_url = reverse('porchlights:porchlight-access', kwargs={'pk': self.porchlight.sqid})
+
+        response = self.client.get(access_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        entries = {entry['id']: entry for entry in response.data['access']}
+        self.assertFalse(entries[str(guest_permission.id)]['is_close'])
+        self.assertFalse(entries[str(user_permission.id)]['is_close'])
+
+        for permission in (guest_permission, user_permission):
+            response = self.client.patch(
+                reverse(
+                    'porchlights:porchlight-access-detail',
+                    kwargs={'pk': self.porchlight.sqid, 'access_id': permission.id},
+                ),
+                {'is_close': True},
+                format='json',
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertTrue(response.data['is_close'])
+            permission.refresh_from_db()
+            self.assertTrue(permission.is_close)
+
     def test_edit_and_share_permissions_can_manage_invitations(self):
         Permission.objects.create(porchlight=self.porchlight, user=self.member, role='edit')
         expired = Invitation.objects.create(

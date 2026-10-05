@@ -47,6 +47,7 @@ class PermissionSerializer(serializers.ModelSerializer):
             'guest_id',
             'guest_name',
             'role',
+            'is_close',
             'from_invitation',
             'created_at',
             'updated_at',

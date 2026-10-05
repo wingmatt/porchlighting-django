@@ -368,6 +368,7 @@ def porchlight_access_data(porchlight):
         'name': porchlight.owner.full_name,
         'role': 'owner',
         'source': 'owner',
+        'is_close': False,
         'created_at': porchlight.created_at.isoformat(),
         'from_invitation': None,
         'editable': False,
@@ -384,6 +385,7 @@ def porchlight_access_data(porchlight):
             'name': member.user.full_name,
             'role': {'OWNER': 'owner', 'ADMIN': 'share', 'MEMBER': 'edit', 'GUEST': 'view'}.get(member.role, 'view'),
             'source': 'membership',
+            'is_close': False,
             'created_at': member.created_at.isoformat(),
             'from_invitation': None,
             'editable': True,
@@ -400,6 +402,7 @@ def porchlight_access_data(porchlight):
                 'name': permission.user.full_name,
                 'role': permission.role,
                 'source': 'permission',
+                'is_close': permission.is_close,
                 'created_at': permission.created_at.isoformat(),
                 'from_invitation': str(permission.from_invitation_id) if permission.from_invitation_id else None,
                 'guest_name': None,
@@ -412,6 +415,7 @@ def porchlight_access_data(porchlight):
                 'name': permission.guest_name or 'Guest',
                 'role': permission.role,
                 'source': 'permission',
+                'is_close': permission.is_close,
                 'created_at': permission.created_at.isoformat(),
                 'from_invitation': str(permission.from_invitation_id) if permission.from_invitation_id else None,
                 'guest_name': permission.guest_name,
@@ -439,15 +443,28 @@ class PorchlightAccessView(APIView):
         if not can_manage_porchlight_access(request, porchlight):
             return Response({'detail': 'You do not have permission to manage this porchlight.'}, status=status.HTTP_403_FORBIDDEN)
         role = str(request.data.get('role', '')).lower()
-        if role not in {'view', 'edit', 'share'}:
+        if role and role not in {'view', 'edit', 'share'}:
             return Response({'role': 'Choose view, edit, or share.'}, status=status.HTTP_400_BAD_REQUEST)
         permission = porchlight.permission_grants.filter(pk=access_id).first()
         if permission:
-            permission.role = role
-            permission.save(update_fields=['role', 'updated_at'])
+            update_fields = ['updated_at']
+            if role:
+                permission.role = role
+                update_fields.append('role')
+            if 'is_close' in request.data:
+                is_close = request.data['is_close']
+                if isinstance(is_close, str):
+                    is_close = is_close.lower() in {'true', '1', 'yes', 'on'}
+                if not isinstance(is_close, bool):
+                    return Response({'is_close': 'Expected a boolean value.'}, status=status.HTTP_400_BAD_REQUEST)
+                permission.is_close = is_close
+                update_fields.append('is_close')
+            permission.save(update_fields=update_fields)
             return Response(next(item for item in porchlight_access_data(porchlight) if item['id'] == str(permission.id)))
         member = porchlight.memberships.filter(pk=access_id).first()
         if member:
+            if not role:
+                return Response({'role': 'Choose view, edit, or share.'}, status=status.HTTP_400_BAD_REQUEST)
             member.role = {'view': PorchlightRole.GUEST, 'edit': PorchlightRole.MEMBER, 'share': PorchlightRole.ADMIN}[role]
             member.save(update_fields=['role'])
             return Response(next(item for item in porchlight_access_data(porchlight) if item['id'] == str(member.id)))
