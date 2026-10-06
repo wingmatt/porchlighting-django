@@ -79,6 +79,7 @@ class RsvpSerializer(serializers.ModelSerializer):
 class PorchlightSerializer(serializers.ModelSerializer):
     """Serializer for Porchlight/Beacon list and general view."""
 
+    brightness = serializers.IntegerField(default=100, min_value=0, max_value=100)
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
     user_role = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
@@ -196,6 +197,8 @@ class PorchlightDetailSerializer(PorchlightSerializer):
 
 class PorchlightControlSerializer(serializers.ModelSerializer):
     """Serializer for toggling or updating Porchlight state."""
+
+    brightness = serializers.IntegerField(min_value=0, max_value=100, required=False)
 
     class Meta:
         model = Porchlight

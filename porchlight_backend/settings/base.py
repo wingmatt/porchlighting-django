@@ -84,7 +84,7 @@ AUTH_USER_MODEL = 'accounts.User'
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@porchlight.local')
 EMAIL_CONFIRMATION_URL = os.getenv(
     'EMAIL_CONFIRMATION_URL',
-    'http://127.0.0.1:8000/api/auth/confirm-email/{uid}/{token}/',
+    'http://localhost:5173/confirm-email/{uid}/{token}/',
 )
 PASSWORD_RESET_URL = os.getenv(
     'PASSWORD_RESET_URL',

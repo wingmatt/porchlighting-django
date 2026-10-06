@@ -47,6 +47,18 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(response.data[0]['user_role'], 'OWNER')
         self.assertEqual(response.data[0]['sqid'], self.porchlight.sqid)
 
+    def test_porchlight_creation_defaults_brightness_to_100(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(
+            reverse('porchlights:porchlight-list-create'),
+            {'name': 'New Porch Light'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['brightness'], 100)
+        self.assertEqual(Porchlight.objects.get(pk=response.data['id']).brightness, 100)
+
     @patch('apps.porchlights.views.notify_porchlight_turned_on')
     def test_turning_on_notifies_accessible_recipients_without_notifying_actor(self, notify):
         self.porchlight.is_on = False
@@ -109,9 +121,56 @@ class PorchlightAndPermissionTests(TestCase):
 
     def test_neighborhood_is_empty_without_access_context(self):
         response = self.client.get(reverse('porchlights:neighborhood-list'))
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, [])
+
+    def test_dim_porchlights_require_close_edit_or_invitation_access(self):
+        invitation = Invitation.objects.create(porchlight=self.porchlight, invited_by=self.owner)
+        Permission.objects.create(
+            porchlight=self.porchlight,
+            user=self.member,
+            role='view',
+            from_invitation=invitation,
+        )
+        close_porchlight = Porchlight.objects.create(name='Close Porch', owner=self.owner, brightness=0)
+        Permission.objects.create(porchlight=close_porchlight, user=self.member, role='view', is_close=True)
+        hidden_porchlight = Porchlight.objects.create(name='Hidden Dim Porch', owner=self.owner, brightness=0)
+        Permission.objects.create(porchlight=hidden_porchlight, user=self.member, role='view')
+
+        self.client.force_authenticate(user=self.member)
+        response = self.client.get(reverse('porchlights:neighborhood-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item['name'] for item in response.data},
+            {self.porchlight.name, close_porchlight.name},
+        )
+        detail_response = self.client.get(
+            reverse('porchlights:porchlight-detail', kwargs={'pk': hidden_porchlight.sqid})
+        )
+        self.assertEqual(detail_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_owner_can_update_porchlight_brightness(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(
+            reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid}),
+            {'brightness': 0},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.porchlight.refresh_from_db()
+        self.assertEqual(self.porchlight.brightness, 0)
+        self.assertEqual(response.data['porchlight']['brightness'], 0)
+
+        Permission.objects.create(porchlight=self.porchlight, user=self.member, role='view')
+        self.client.force_authenticate(user=self.member)
+        response = self.client.post(
+            reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid}),
+            {'brightness': 100},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch('apps.porchlights.views.settings.GEOCODIO_API_KEY', 'test-key')
     @patch('apps.porchlights.views.Geocodio')

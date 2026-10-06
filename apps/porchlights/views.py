@@ -28,6 +28,7 @@ from .permissions import (
     HasPorchlightAccess,
     IsPorchlightOwner,
     IsPorchlightOwnerOrAdmin,
+    porchlight_visibility_filter,
     get_guest_session_from_request,
 )
 from .serializers import (
@@ -71,9 +72,7 @@ class PorchlightListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        return Porchlight.objects.filter(
-            Q(owner=user) | Q(memberships__user=user) | Q(permission_grants__user=user)
-        ).distinct()
+        return Porchlight.objects.filter(porchlight_visibility_filter(user=user)).distinct()
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -88,16 +87,8 @@ class NeighborhoodListView(generics.ListAPIView):
     def get_queryset(self):
         user = self.request.user if self.request.user and self.request.user.is_authenticated else None
         guest_token = getattr(self.request, 'guest_token', None) or self.request.headers.get('X-Guest-Token')
-        access_filter = Q()
-        if user:
-            access_filter |= (
-                Q(owner=user)
-                | Q(memberships__user=user)
-                | Q(permission_grants__user=user)
-            )
-        if guest_token:
-            access_filter |= Q(permission_grants__guest_id=guest_token)
-        return Porchlight.objects.filter(access_filter).distinct() if access_filter else Porchlight.objects.none()
+        visibility_filter = porchlight_visibility_filter(user=user, guest_token=guest_token)
+        return Porchlight.objects.filter(visibility_filter).distinct()
 
 
 class GeocodeAddressView(APIView):
@@ -177,6 +168,13 @@ class PorchlightControlView(APIView):
     def post(self, request, pk, *args, **kwargs):
         porchlight = get_porchlight_by_sqid_or_404(pk)
         self.check_object_permissions(request, porchlight)
+        if 'brightness' in request.data:
+            owner_or_admin = IsPorchlightOwnerOrAdmin()
+            if not owner_or_admin.has_object_permission(request, self, porchlight):
+                return Response(
+                    {'detail': 'You do not have permission to change porchlight brightness.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         was_on = porchlight.is_on
 
         action = request.data.get('action')
