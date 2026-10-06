@@ -474,6 +474,22 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertTrue(self.porchlight.is_on)
         self.assertEqual(self.porchlight.brightness, 100)
 
+    def test_new_invitation_does_not_process_invited_email(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(
+            reverse('porchlights:invitation-list-create'),
+            {
+                'porchlight': str(self.porchlight.id),
+                'role': PorchlightRole.MEMBER,
+                'invited_email': 'recipient@example.com',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invitation = Invitation.objects.get(pk=response.data['id'])
+        self.assertIsNone(invitation.invited_email)
+
     def test_guest_invitation_and_guest_control(self):
         # 1. Create a guest invitation
         invitation = Invitation.objects.create(

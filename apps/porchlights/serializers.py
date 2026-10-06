@@ -284,7 +284,6 @@ class InvitationCreateSerializer(serializers.ModelSerializer):
             'porchlight',
             'beacon',
             'user',
-            'invited_email',
             'guest_token',
             'role',
             'role_granted',
