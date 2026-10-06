@@ -23,6 +23,7 @@ from .models import (
     PorchlightRole,
     Rsvp,
     generate_invitation_code,
+    reset_brightness_without_close_permission,
 )
 from .permissions import (
     HasPorchlightAccess,
@@ -458,6 +459,8 @@ class PorchlightAccessView(APIView):
                 permission.is_close = is_close
                 update_fields.append('is_close')
             permission.save(update_fields=update_fields)
+            if 'is_close' in request.data and not permission.is_close:
+                reset_brightness_without_close_permission(porchlight)
             return Response(next(item for item in porchlight_access_data(porchlight) if item['id'] == str(permission.id)))
         member = porchlight.memberships.filter(pk=access_id).first()
         if member:

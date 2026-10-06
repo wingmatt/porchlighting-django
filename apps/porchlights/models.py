@@ -3,6 +3,8 @@ import secrets
 import uuid
 from django.conf import settings
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from sqids import Sqids
@@ -399,6 +401,18 @@ class Permission(models.Model):
     @beacon.setter
     def beacon(self, value):
         self.porchlight = value
+
+
+def reset_brightness_without_close_permission(porchlight):
+    """Restore full brightness when a porchlight has no close permissions left."""
+    if not porchlight.permission_grants.filter(is_close=True).exists() and porchlight.brightness != 100:
+        porchlight.brightness = 100
+        porchlight.save(update_fields=['brightness', 'updated_at'])
+
+
+@receiver(post_delete, sender=Permission)
+def reset_brightness_after_permission_delete(sender, instance, **kwargs):
+    reset_brightness_without_close_permission(instance.porchlight)
 
 
 class Rsvp(models.Model):

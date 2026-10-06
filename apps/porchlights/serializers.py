@@ -89,6 +89,7 @@ class PorchlightSerializer(serializers.ModelSerializer):
     rsvp_count = serializers.IntegerField(source='rsvps.count', read_only=True)
     has_rsvp = serializers.SerializerMethodField()
     rsvp_id = serializers.SerializerMethodField()
+    has_close_permission = serializers.SerializerMethodField()
 
     class Meta:
         model = Porchlight
@@ -116,6 +117,7 @@ class PorchlightSerializer(serializers.ModelSerializer):
             'rsvp_count',
             'has_rsvp',
             'rsvp_id',
+            'has_close_permission',
         ]
         read_only_fields = ['id', 'owner', 'is_active', 'coordinates', 'created_at', 'updated_at']
 
@@ -134,6 +136,9 @@ class PorchlightSerializer(serializers.ModelSerializer):
     def get_rsvp_id(self, obj):
         rsvp = self._current_rsvp(obj)
         return rsvp.id if rsvp else None
+
+    def get_has_close_permission(self, obj) -> bool:
+        return obj.permission_grants.filter(is_close=True).exists()
 
     def get_coordinates(self, obj) -> dict | None:
         return obj.coordinates

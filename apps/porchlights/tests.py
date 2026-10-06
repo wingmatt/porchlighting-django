@@ -172,6 +172,37 @@ class PorchlightAndPermissionTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_brightness_resets_when_last_close_permission_is_disabled_or_removed(self):
+        permission = Permission.objects.create(
+            porchlight=self.porchlight,
+            user=self.member,
+            role='view',
+            is_close=True,
+        )
+        self.porchlight.brightness = 0
+        self.porchlight.save(update_fields=['brightness', 'updated_at'])
+        self.client.force_authenticate(user=self.owner)
+        access_url = reverse(
+            'porchlights:porchlight-access-detail',
+            kwargs={'pk': self.porchlight.sqid, 'access_id': permission.id},
+        )
+
+        response = self.client.patch(access_url, {'is_close': False}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.porchlight.refresh_from_db()
+        self.assertEqual(self.porchlight.brightness, 100)
+
+        permission.is_close = True
+        permission.save(update_fields=['is_close', 'updated_at'])
+        self.porchlight.brightness = 0
+        self.porchlight.save(update_fields=['brightness', 'updated_at'])
+        response = self.client.delete(access_url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.porchlight.refresh_from_db()
+        self.assertEqual(self.porchlight.brightness, 100)
+
     @patch('apps.porchlights.views.settings.GEOCODIO_API_KEY', 'test-key')
     @patch('apps.porchlights.views.Geocodio')
     def test_geocode_address_returns_coordinates(self, mock_geocodio):
