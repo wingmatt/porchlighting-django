@@ -2,7 +2,8 @@
 import datetime
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -12,6 +13,7 @@ from .models import GuestSession, Invitation, Permission, Porchlight, Porchlight
 from .tasks import (
     delete_porchlight_from_firebase_task,
     send_porchlight_fcm_update_task,
+    schedule_porchlight_sync,
     sync_porchlight_to_firebase_task,
 )
 from apps.accounts.models import FCMDeviceToken
@@ -506,6 +508,27 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertTrue(self.porchlight.is_on)
         self.assertEqual(self.porchlight.color, '#00FF00')
 
+    @override_settings(FIREBASE_SYNC_IN_REQUEST=True)
+    @patch('apps.porchlights.models.Porchlight.sync_to_firebase', return_value=True)
+    def test_control_publishes_state_to_firebase(self, sync_to_firebase):
+        self.client.force_authenticate(user=self.owner)
+        control_url = reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid})
+
+        response = self.client.post(control_url, {'action': 'turn_on'}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        sync_to_firebase.assert_called_once()
+
+    @patch('apps.porchlights.models.Porchlight.sync_to_firebase', return_value=True)
+    def test_control_does_not_publish_in_request_by_default(self, sync_to_firebase):
+        self.client.force_authenticate(user=self.owner)
+        control_url = reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid})
+
+        response = self.client.post(control_url, {'action': 'turn_on'}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        sync_to_firebase.assert_not_called()
+
     def test_guest_can_accept_regular_invitation_reuse_token_and_is_named(self):
         first_invitation = Invitation.objects.create(
             porchlight=self.porchlight,
@@ -680,6 +703,16 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertIn(str(self.owner.id), payload['allowed_users'])
         self.assertIn(str(self.member.id), payload['allowed_users'])
         self.assertIn(session.guest_token, payload['allowed_guest_tokens'])
+        self.assertEqual(payload['updated_at'], self.porchlight.updated_at.isoformat())
+
+    @patch('apps.porchlights.tasks.sync_porchlight_to_firebase_task.delay')
+    def test_sync_scheduler_coalesces_pending_porchlight_ids(self, delay):
+        cache.clear()
+
+        self.assertTrue(schedule_porchlight_sync(str(self.porchlight.id)))
+        self.assertFalse(schedule_porchlight_sync(str(self.porchlight.id)))
+
+        delay.assert_called_once_with(str(self.porchlight.id), notify_fcm=True)
 
     def test_celery_tasks_execution(self):
         # 1. Register device token for owner

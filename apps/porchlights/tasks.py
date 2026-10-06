@@ -1,6 +1,7 @@
 """Celery background tasks for Firebase synchronization and FCM notifications."""
 import logging
 from celery import shared_task
+from django.core.cache import cache
 from django.db.models import Q
 
 from apps.accounts.models import FCMDeviceToken
@@ -12,18 +13,37 @@ from apps.core.firebase import (
 
 logger = logging.getLogger(__name__)
 
+SYNC_PENDING_TIMEOUT = 60 * 15
+
+
+def schedule_porchlight_sync(porchlight_id: str, notify_fcm: bool = True) -> bool:
+    """Queue at most one pending sync for a Porchlight at a time."""
+    porchlight_id = str(porchlight_id)
+    pending_key = f'porchlight-sync-pending:{porchlight_id}'
+    notify_key = f'porchlight-sync-notify:{porchlight_id}'
+
+    if notify_fcm:
+        cache.set(notify_key, True, timeout=SYNC_PENDING_TIMEOUT)
+    if not cache.add(pending_key, True, timeout=SYNC_PENDING_TIMEOUT):
+        return False
+
+    sync_porchlight_to_firebase_task.delay(porchlight_id, notify_fcm=notify_fcm)
+    return True
+
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=5)
 def sync_porchlight_to_firebase_task(self, porchlight_id: str, notify_fcm: bool = True):
     """Sync Porchlight state and permissions to Firebase Firestore/Realtime DB."""
     from apps.porchlights.models import Porchlight
 
+    pending_key = f'porchlight-sync-pending:{porchlight_id}'
+    notify_key = f'porchlight-sync-notify:{porchlight_id}'
     try:
         porchlight = Porchlight.objects.get(pk=porchlight_id)
         payload = porchlight.get_firebase_payload()
         success = sync_porchlight_to_firebase(str(porchlight.id), payload)
 
-        if notify_fcm:
+        if notify_fcm or cache.get(notify_key, False):
             # Broadcast push / data notification to permitted devices
             send_porchlight_fcm_update_task.delay(str(porchlight.id))
 
@@ -34,6 +54,9 @@ def sync_porchlight_to_firebase_task(self, porchlight_id: str, notify_fcm: bool 
     except Exception as exc:
         logger.error("Error in sync_porchlight_to_firebase_task for %s: %s", porchlight_id, exc)
         raise self.retry(exc=exc)
+    finally:
+        cache.delete(pending_key)
+        cache.delete(notify_key)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=5)

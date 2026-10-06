@@ -190,6 +190,11 @@ class PorchlightControlView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
+        # Celery is the production publication path. Enable this only for
+        # environments that explicitly need synchronous fallback behavior.
+        if settings.FIREBASE_SYNC_IN_REQUEST:
+            porchlight.sync_to_firebase()
+
         if not was_on and porchlight.is_on:
             actor_user = request.user if request.user and request.user.is_authenticated else None
             actor_guest = request.headers.get('X-Guest-Token') or getattr(request, 'guest_token', None)

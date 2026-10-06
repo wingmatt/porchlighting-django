@@ -7,7 +7,7 @@ from django.dispatch import receiver
 from .models import GuestSession, Invitation, Porchlight, PorchlightMember, PorchlightRole
 from .tasks import (
     delete_porchlight_from_firebase_task,
-    sync_porchlight_to_firebase_task,
+    schedule_porchlight_sync,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ def handle_porchlight_saved(sender, instance, created, **kwargs):
             max_uses=0,
         )
     porchlight_id = str(instance.id)
-    transaction.on_commit(lambda: sync_porchlight_to_firebase_task.delay(porchlight_id))
+    transaction.on_commit(lambda: schedule_porchlight_sync(porchlight_id))
 
 
 @receiver(post_delete, sender=Porchlight)
@@ -39,25 +39,25 @@ def handle_porchlight_deleted(sender, instance, **kwargs):
 def handle_porchlight_member_saved(sender, instance, **kwargs):
     """Re-sync Porchlight permissions when a member is added or modified."""
     porchlight_id = str(instance.porchlight_id)
-    transaction.on_commit(lambda: sync_porchlight_to_firebase_task.delay(porchlight_id, notify_fcm=False))
+    transaction.on_commit(lambda: schedule_porchlight_sync(porchlight_id, notify_fcm=False))
 
 
 @receiver(post_delete, sender=PorchlightMember)
 def handle_porchlight_member_deleted(sender, instance, **kwargs):
     """Re-sync Porchlight permissions when a member is removed."""
     porchlight_id = str(instance.porchlight_id)
-    transaction.on_commit(lambda: sync_porchlight_to_firebase_task.delay(porchlight_id, notify_fcm=False))
+    transaction.on_commit(lambda: schedule_porchlight_sync(porchlight_id, notify_fcm=False))
 
 
 @receiver(post_save, sender=GuestSession)
 def handle_guest_session_saved(sender, instance, **kwargs):
     """Re-sync Porchlight permissions when a guest session is created."""
     porchlight_id = str(instance.invitation.porchlight_id)
-    transaction.on_commit(lambda: sync_porchlight_to_firebase_task.delay(porchlight_id, notify_fcm=False))
+    transaction.on_commit(lambda: schedule_porchlight_sync(porchlight_id, notify_fcm=False))
 
 
 @receiver(post_delete, sender=GuestSession)
 def handle_guest_session_deleted(sender, instance, **kwargs):
     """Re-sync Porchlight permissions when a guest session is deleted."""
     porchlight_id = str(instance.invitation.porchlight_id)
-    transaction.on_commit(lambda: sync_porchlight_to_firebase_task.delay(porchlight_id, notify_fcm=False))
+    transaction.on_commit(lambda: schedule_porchlight_sync(porchlight_id, notify_fcm=False))

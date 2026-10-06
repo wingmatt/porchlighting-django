@@ -177,6 +177,7 @@ FIREBASE_CREDENTIALS_PATH = os.getenv('FIREBASE_CREDENTIALS_PATH', None)
 FIREBASE_DATABASE_URL = os.getenv('FIREBASE_DATABASE_URL', '')
 FIREBASE_PROJECT_ID = os.getenv('FIREBASE_PROJECT_ID', '')
 FIREBASE_STORAGE_BUCKET = os.getenv('FIREBASE_STORAGE_BUCKET', '')
+FIREBASE_SYNC_IN_REQUEST = os.getenv('FIREBASE_SYNC_IN_REQUEST', 'False').lower() in ('true', '1', 't')
 GEOCODIO_API_KEY = os.getenv('GEOCODIO_API_KEY', '')
 WEB_PUSH_VAPID_PUBLIC_KEY = os.getenv('WEB_PUSH_VAPID_PUBLIC_KEY', '')
 WEB_PUSH_VAPID_PRIVATE_KEY = os.getenv('WEB_PUSH_VAPID_PRIVATE_KEY', '')
@@ -190,3 +191,13 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_TASK_ALWAYS_EAGER', 'False').lower() in ('true', '1', 't')
+
+# A shared cache is required for cross-process Porchlight task coalescing.
+CACHE_URL = os.getenv('DJANGO_CACHE_URL', os.getenv('REDIS_URL', ''))
+if CACHE_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': CACHE_URL,
+        }
+    }
