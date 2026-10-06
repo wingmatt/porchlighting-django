@@ -17,4 +17,5 @@ dependencies = [
     "pywebpush>=2.5.0",
     "sentry-sdk[django]>=2.0.0",
     "sqids>=0.5.2",
+    "uvicorn>=0.54.0",
 ]

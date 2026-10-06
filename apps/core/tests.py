@@ -2,7 +2,7 @@
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from apps.core import firebase as firebase_helpers
 from apps.core.firebase import (
     create_firebase_custom_token,
@@ -54,6 +54,7 @@ class CoreFirebaseTests(TestCase):
     @patch('firebase_admin._apps', new={})
     @patch('firebase_admin.credentials.ApplicationDefault')
     @patch('firebase_admin.initialize_app')
+    @override_settings(FIREBASE_CREDENTIALS_PATH='')
     def test_firebase_initialization_is_mocked(self, initialize_app, application_default):
         mocked_app = object()
         application_default.return_value = object()
@@ -67,6 +68,7 @@ class CoreFirebaseTests(TestCase):
     @patch('firebase_admin._apps', new={})
     @patch('firebase_admin.credentials.ApplicationDefault', side_effect=Exception('no test credentials'))
     @patch('firebase_admin.initialize_app')
+    @override_settings(FIREBASE_CREDENTIALS_PATH='')
     def test_firebase_initialization_without_credentials_returns_none(
         self, initialize_app, application_default
     ):
