@@ -1,28 +1,31 @@
 """URL configuration for Porchlights and Beacons app."""
 from django.urls import path
-from .views import (
-    AcceptInvitationView,
-    BeaconControlView,
-    BeaconDetailView,
-    BeaconListCreateView,
+from .views_access import (
     GuestAccessView,
-    GeocodeAddressView,
+    PermissionListCreateView,
+    PorchlightAccessView,
+    PorchlightMemberDetailView,
+    PorchlightMemberListView,
+)
+from .views_invitations import (
+    AcceptInvitationView,
     InvitationDetailView,
     InvitationListCreateView,
     InvitationParticipantsView,
     InvitationRevokeAllView,
-    NeighborhoodListView,
-    PermissionListCreateView,
-    PorchlightControlView,
-    PorchlightDetailView,
-    PorchlightAccessView,
-    PorchlightListCreateView,
-    PorchlightMemberDetailView,
-    PorchlightMemberListView,
-    RsvpDetailView,
-    RsvpListCreateView,
     ValidateInvitationView,
 )
+from .views_porchlights import (
+    BeaconControlView,
+    BeaconDetailView,
+    BeaconListCreateView,
+    GeocodeAddressView,
+    NeighborhoodListView,
+    PorchlightControlView,
+    PorchlightDetailView,
+    PorchlightListCreateView,
+)
+from .views_rsvps import RsvpDetailView, RsvpListCreateView
 
 app_name = 'porchlights'
 
