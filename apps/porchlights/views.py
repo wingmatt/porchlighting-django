@@ -3,7 +3,8 @@
 from django.conf import settings
 from django.http import Http404
 from django.db import models, transaction
-from django.db.models import Q
+from django.db.models import Case, Count, Exists, OuterRef, Prefetch, Q, Subquery, Value, When
+from django.db.models.functions import Upper
 from django.utils import timezone
 from geocodio import Geocodio
 from geocodio.exceptions import GeocodioError
@@ -22,6 +23,7 @@ from .models import (
     PorchlightMember,
     PorchlightRole,
     Rsvp,
+    allocate_numeric_id,
     generate_invitation_code,
     reset_brightness_without_close_permission,
 )
@@ -44,6 +46,69 @@ from .serializers import (
     PorchlightSerializer,
     RsvpSerializer,
 )
+
+
+def porchlight_queryset(request, detail=False):
+    """Build a visibility queryset with request-specific fields computed in SQL."""
+    user = request.user if request.user and request.user.is_authenticated else None
+    guest_token = getattr(request, 'guest_token', None) or request.headers.get('X-Guest-Token')
+    queryset = Porchlight.objects.filter(
+        porchlight_visibility_filter(user=user, guest_token=guest_token),
+    ).distinct().select_related('owner')
+    role_cases = []
+
+    if user:
+        member_roles = PorchlightMember.objects.filter(
+            porchlight=OuterRef('pk'), user=user,
+        ).values('role')[:1]
+        user_permissions = Permission.objects.filter(
+            porchlight=OuterRef('pk'), user=user,
+        ).values('role')[:1]
+        role_cases.extend([
+            When(owner_id=user.id, then=Value('OWNER')),
+            When(Exists(PorchlightMember.objects.filter(porchlight=OuterRef('pk'), user=user)), then=Subquery(member_roles)),
+            When(Exists(Permission.objects.filter(porchlight=OuterRef('pk'), user=user)), then=Upper(Subquery(user_permissions))),
+        ])
+
+    if guest_token:
+        guest_roles = GuestSession.objects.filter(
+            invitation__porchlight=OuterRef('pk'), guest_token=guest_token,
+        ).values('invitation__role')[:1]
+        guest_permissions = Permission.objects.filter(
+            porchlight=OuterRef('pk'), guest_id=guest_token,
+        ).values('role')[:1]
+        role_cases.extend([
+            When(Exists(GuestSession.objects.filter(
+                invitation__porchlight=OuterRef('pk'), guest_token=guest_token,
+            )), then=Subquery(guest_roles)),
+            When(Exists(Permission.objects.filter(
+                porchlight=OuterRef('pk'), guest_id=guest_token,
+            )), then=Upper(Subquery(guest_permissions))),
+        ])
+
+    rsvp_filter = Q(porchlight=OuterRef('pk'))
+    if user:
+        rsvp_filter &= Q(user=user)
+    elif guest_token:
+        rsvp_filter &= Q(guest_id=guest_token)
+    else:
+        rsvp_filter &= Q(pk__isnull=True)
+
+    queryset = queryset.annotate(
+        rsvp_count=Count('rsvps', distinct=True),
+        current_rsvp_id=Subquery(Rsvp.objects.filter(rsvp_filter).values('id')[:1]),
+        has_close_permission=Exists(
+            Permission.objects.filter(porchlight=OuterRef('pk'), is_close=True),
+        ),
+        computed_user_role=Case(*role_cases, default=Value('GUEST')),
+    )
+    if detail:
+        queryset = queryset.prefetch_related(
+            Prefetch('memberships', queryset=PorchlightMember.objects.select_related('user')),
+            Prefetch('permission_grants', queryset=Permission.objects.select_related('user', 'from_invitation')),
+            Prefetch('rsvps', queryset=Rsvp.objects.select_related('user')),
+        )
+    return queryset
 
 
 def get_porchlight_by_sqid_or_404(identifier):
@@ -72,8 +137,7 @@ class PorchlightListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        return Porchlight.objects.filter(porchlight_visibility_filter(user=user)).distinct()
+        return porchlight_queryset(self.request)
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -86,10 +150,7 @@ class NeighborhoodListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        user = self.request.user if self.request.user and self.request.user.is_authenticated else None
-        guest_token = getattr(self.request, 'guest_token', None) or self.request.headers.get('X-Guest-Token')
-        visibility_filter = porchlight_visibility_filter(user=user, guest_token=guest_token)
-        return Porchlight.objects.filter(visibility_filter).distinct()
+        return porchlight_queryset(self.request)
 
 
 class GeocodeAddressView(APIView):
@@ -136,12 +197,19 @@ BeaconListCreateView = PorchlightListCreateView
 class PorchlightDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Retrieve, update, or delete a porchlight/beacon."""
 
-    queryset = Porchlight.objects.all()
     permission_classes = [HasPorchlightAccess]
 
+    def get_queryset(self):
+        return porchlight_queryset(self.request, detail=self.request.method == 'GET')
+
     def get_object(self):
-        porchlight = get_porchlight_by_sqid_or_404(self.kwargs['pk'])
-        self.check_object_permissions(self.request, porchlight)
+        resolved = Porchlight.get_by_sqid(self.kwargs['pk'])
+        if not resolved:
+            raise Http404
+        self.check_object_permissions(self.request, resolved)
+        porchlight = self.get_queryset().filter(pk=resolved.pk).first() if self.request.method == 'GET' else resolved
+        if not porchlight:
+            raise Http404
         return porchlight
 
     def get_serializer_class(self):
@@ -567,8 +635,7 @@ class InvitationRevokeAllView(APIView):
         with transaction.atomic():
             invitation.permissions_granted.all().delete()
             invitation.guest_sessions.all().delete()
-            max_numeric_id = Invitation.objects.aggregate(max_id=models.Max('numeric_id'))['max_id'] or 0
-            invitation.numeric_id = max_numeric_id + 1
+            invitation.numeric_id = allocate_numeric_id('invitation')
             invitation.code = generate_invitation_code()
             invitation.uses_count = 0
             invitation.is_active = True
@@ -643,37 +710,34 @@ class GuestAccessView(APIView):
 
         invitation_code = serializer.validated_data['invitation_code']
         guest_token = request.headers.get('X-Guest-Token')
-        invitation = Invitation.get_by_sqid(invitation_code)
-        if not invitation:
-            return Response({'error': 'Invitation not found.'}, status=status.HTTP_404_NOT_FOUND)
+        with transaction.atomic():
+            invitation = Invitation.get_by_sqid(invitation_code)
+            if not invitation:
+                return Response({'error': 'Invitation not found.'}, status=status.HTTP_404_NOT_FOUND)
+            invitation = Invitation.objects.select_for_update().select_related('porchlight').get(pk=invitation.pk)
+            session = GuestSession.objects.filter(guest_token=guest_token).select_related('invitation').first() if guest_token else None
+            if guest_token and (not session or not session.is_valid()):
+                return Response({'error': 'This guest session is no longer valid.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        session = GuestSession.objects.filter(guest_token=guest_token).first() if guest_token else None
-        if guest_token and (not session or not session.is_valid()):
-            return Response({'error': 'This guest session is no longer valid.'}, status=status.HTTP_400_BAD_REQUEST)
+            guest_name = session.guest_name if session else serializer.validated_data.get('guest_name', '').strip()
+            if not guest_name:
+                return Response({'error': 'A name is required to join as a guest.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        guest_name = session.guest_name if session else serializer.validated_data.get('guest_name', '').strip()
-        if not guest_name:
-            return Response({'error': 'A name is required to join as a guest.'}, status=status.HTTP_400_BAD_REQUEST)
+            created_session = session is None
+            if created_session:
+                if not invitation.is_valid():
+                    return Response({'error': 'This invitation has expired or has already been used.'}, status=status.HTTP_400_BAD_REQUEST)
+                session = GuestSession.objects.create(invitation=invitation, guest_name=guest_name)
+                guest_token = session.guest_token
 
-        if not session:
-            session = GuestSession.objects.create(
-                invitation=invitation,
-                guest_name=guest_name,
+            Permission.objects.get_or_create(
+                porchlight=invitation.porchlight,
+                guest_id=guest_token,
+                from_invitation=invitation,
+                defaults={'guest_name': guest_name, 'role': invitation.role_granted},
             )
-            guest_token = session.guest_token
-
-        # Also record permission grant for guest
-        Permission.objects.get_or_create(
-            porchlight=invitation.porchlight,
-            guest_id=guest_token,
-            from_invitation=invitation,
-            defaults={
-                'guest_name': guest_name,
-                'role': invitation.role_granted,
-            },
-        )
-
-        invitation.record_usage()
+            if created_session:
+                invitation.record_usage()
         firebase_token = create_firebase_custom_token(
             f"guest_{session.guest_token}",
             {'guest': True, 'guest_token': session.guest_token, 'porchlight_id': str(invitation.porchlight_id)},

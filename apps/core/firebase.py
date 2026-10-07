@@ -6,6 +6,7 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 _firebase_app = None
+_firestore_client = None
 
 
 def get_firebase_app():
@@ -53,12 +54,16 @@ def get_firebase_app():
 
 def get_firestore_client():
     """Retrieve Firestore database client."""
+    global _firestore_client
+    if _firestore_client is not None:
+        return _firestore_client
     app = get_firebase_app()
     if not app:
         return None
     try:
         from firebase_admin import firestore
-        return firestore.client(app=app)
+        _firestore_client = firestore.client(app=app)
+        return _firestore_client
     except Exception as e:
         logger.error("Failed to get Firestore client: %s", e)
         return None
@@ -165,13 +170,20 @@ def send_fcm_multicast(
 
         # send_each_for_multicast is preferred in firebase-admin >= 6.2
         if hasattr(messaging, 'send_each_for_multicast'):
-            response = messaging.send_each_for_multicast(message, app=app)
+            batch_response = messaging.send_each_for_multicast(message, app=app)
         else:
-            response = messaging.send_multicast(message, app=app)
+            batch_response = messaging.send_multicast(message, app=app)
+
+        invalid_tokens = []
+        for token, send_response in zip(tokens, batch_response.responses):
+            error_code = getattr(getattr(send_response, 'exception', None), 'code', None)
+            if error_code in {'registration-token-not-registered', 'invalid-registration-token'}:
+                invalid_tokens.append(token)
 
         return {
-            'success_count': response.success_count,
-            'failure_count': response.failure_count,
+            'success_count': batch_response.success_count,
+            'failure_count': batch_response.failure_count,
+            'invalid_tokens': invalid_tokens,
         }
     except Exception as e:
         logger.error("Failed to send FCM multicast message: %s", e)

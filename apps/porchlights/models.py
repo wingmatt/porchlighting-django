@@ -2,7 +2,7 @@
 import secrets
 import uuid
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -11,6 +11,27 @@ from sqids import Sqids
 from apps.core.firebase import sync_porchlight_to_firebase
 
 sqids = Sqids(min_length=8)
+
+
+class NumericIdAllocator(models.Model):
+    """Transactional counters used for stable, human-facing Sqid identifiers."""
+
+    key = models.CharField(max_length=32, unique=True)
+    next_value = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        verbose_name = _('numeric ID allocator')
+        verbose_name_plural = _('numeric ID allocators')
+
+
+def allocate_numeric_id(key: str) -> int:
+    """Allocate the next identifier while locking one shared counter row."""
+    with transaction.atomic():
+        allocator = NumericIdAllocator.objects.select_for_update().get(key=key)
+        value = allocator.next_value
+        allocator.next_value = value + 1
+        allocator.save(update_fields=['next_value'])
+        return value
 
 
 class PorchlightRole(models.TextChoices):
@@ -58,8 +79,7 @@ class Porchlight(models.Model):
 
     def save(self, *args, **kwargs):
         if self.numeric_id is None:
-            max_num = type(self).objects.aggregate(models.Max('numeric_id'))['numeric_id__max']
-            self.numeric_id = (max_num or 0) + 1
+            self.numeric_id = allocate_numeric_id('porchlight')
         super().save(*args, **kwargs)
 
     @property
@@ -264,8 +284,7 @@ class Invitation(models.Model):
 
     def save(self, *args, **kwargs):
         if self.numeric_id is None:
-            max_num = Invitation.objects.aggregate(models.Max('numeric_id'))['numeric_id__max']
-            self.numeric_id = (max_num or 0) + 1
+            self.numeric_id = allocate_numeric_id('invitation')
         super().save(*args, **kwargs)
 
     @property
@@ -349,10 +368,13 @@ class Invitation(models.Model):
 
     def record_usage(self):
         """Increment usage count and deactivate if max uses reached."""
+        if not self.is_valid():
+            return False
         self.uses_count += 1
         if self.max_uses > 0 and self.uses_count >= self.max_uses:
             self.is_active = False
-        self.save()
+        self.save(update_fields=['uses_count', 'is_active', 'updated_at'])
+        return True
 
 
 class Permission(models.Model):
@@ -439,6 +461,18 @@ class Rsvp(models.Model):
         ordering = ['-created_at']
         verbose_name = _('RSVP')
         verbose_name_plural = _('RSVPs')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['porchlight', 'user'],
+                condition=models.Q(user__isnull=False),
+                name='unique_user_rsvp_per_porchlight',
+            ),
+            models.UniqueConstraint(
+                fields=['porchlight', 'guest_id'],
+                condition=models.Q(guest_id__isnull=False),
+                name='unique_guest_rsvp_per_porchlight',
+            ),
+        ]
 
     def __str__(self):
         target = self.user.email if self.user else f"Guest ({self.guest_id})"

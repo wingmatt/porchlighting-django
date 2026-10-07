@@ -14,6 +14,7 @@ from apps.core.firebase import (
 logger = logging.getLogger(__name__)
 
 SYNC_PENDING_TIMEOUT = 60 * 15
+FCM_BATCH_SIZE = 500
 
 
 def schedule_porchlight_sync(porchlight_id: str, notify_fcm: bool = True) -> bool:
@@ -47,6 +48,8 @@ def sync_porchlight_to_firebase_task(self, porchlight_id: str, notify_fcm: bool 
             # Broadcast push / data notification to permitted devices
             send_porchlight_fcm_update_task.delay(str(porchlight.id))
 
+        cache.delete(pending_key)
+        cache.delete(notify_key)
         return success
     except Porchlight.DoesNotExist:
         logger.warning("Porchlight %s not found for Firebase sync.", porchlight_id)
@@ -54,11 +57,6 @@ def sync_porchlight_to_firebase_task(self, porchlight_id: str, notify_fcm: bool 
     except Exception as exc:
         logger.error("Error in sync_porchlight_to_firebase_task for %s: %s", porchlight_id, exc)
         raise self.retry(exc=exc)
-    finally:
-        cache.delete(pending_key)
-        cache.delete(notify_key)
-
-
 @shared_task(bind=True, max_retries=3, default_retry_delay=5)
 def delete_porchlight_from_firebase_task(self, porchlight_id: str):
     """Remove Porchlight from Firebase when deleted in Django."""
@@ -108,8 +106,17 @@ def send_porchlight_fcm_update_task(self, porchlight_id: str):
             'type': 'porchlight_update',
         }
 
-        result = send_fcm_multicast(device_tokens, title=title, body=body, data=data)
-        return result
+        totals = {'success_count': 0, 'failure_count': 0, 'batches': 0}
+        for offset in range(0, len(device_tokens), FCM_BATCH_SIZE):
+            batch = device_tokens[offset:offset + FCM_BATCH_SIZE]
+            result = send_fcm_multicast(batch, title=title, body=body, data=data)
+            totals['success_count'] += result.get('success_count', 0)
+            totals['failure_count'] += result.get('failure_count', 0)
+            totals['batches'] += 1
+            invalid_tokens = result.get('invalid_tokens', [])
+            if invalid_tokens:
+                FCMDeviceToken.objects.filter(registration_token__in=invalid_tokens).update(is_active=False)
+        return totals
     except Porchlight.DoesNotExist:
         logger.warning("Porchlight %s not found for FCM update notification.", porchlight_id)
         return {'sent': 0, 'status': 'not_found'}

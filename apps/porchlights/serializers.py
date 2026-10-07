@@ -86,7 +86,7 @@ class PorchlightSerializer(serializers.ModelSerializer):
     is_active = serializers.BooleanField(read_only=True)
     coordinates = serializers.SerializerMethodField()
     sqid = serializers.CharField(read_only=True)
-    rsvp_count = serializers.IntegerField(source='rsvps.count', read_only=True)
+    rsvp_count = serializers.IntegerField(read_only=True)
     has_rsvp = serializers.SerializerMethodField()
     rsvp_id = serializers.SerializerMethodField()
     has_close_permission = serializers.SerializerMethodField()
@@ -122,6 +122,9 @@ class PorchlightSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'owner', 'is_active', 'coordinates', 'created_at', 'updated_at']
 
     def _current_rsvp(self, obj):
+        annotated_id = getattr(obj, 'current_rsvp_id', None)
+        if annotated_id:
+            return annotated_id
         request = self.context.get('request')
         if not request:
             return None
@@ -131,19 +134,24 @@ class PorchlightSerializer(serializers.ModelSerializer):
         return obj.rsvps.filter(guest_id=guest_token).first() if guest_token else None
 
     def get_has_rsvp(self, obj) -> bool:
-        return self._current_rsvp(obj) is not None
+        return bool(self._current_rsvp(obj))
 
     def get_rsvp_id(self, obj):
         rsvp = self._current_rsvp(obj)
-        return rsvp.id if rsvp else None
+        return rsvp.id if hasattr(rsvp, 'id') else rsvp
 
     def get_has_close_permission(self, obj) -> bool:
+        if hasattr(obj, 'has_close_permission'):
+            return obj.has_close_permission
         return obj.permission_grants.filter(is_close=True).exists()
 
     def get_coordinates(self, obj) -> dict | None:
         return obj.coordinates
 
     def get_user_role(self, obj) -> str:
+        computed_role = getattr(obj, 'computed_user_role', None)
+        if computed_role:
+            return computed_role
         request = self.context.get('request')
         if not request:
             return 'GUEST'
