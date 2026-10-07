@@ -5,26 +5,9 @@ from .models import GuestSession, Invitation, Permission, Porchlight, Porchlight
 
 
 def get_guest_session_from_request(request, porchlight=None):
-    """Extract and validate GuestSession or Permission from request headers, middleware, or params."""
-    guest_token = (
-        getattr(request, 'guest_token', None)
-        or request.headers.get('X-Guest-Token')
-        or request.query_params.get('guest_token')
-        or (request.data.get('guest_token') if isinstance(request.data, dict) else None)
-    )
+    """Extract and validate a guest session from the dedicated request header."""
+    guest_token = getattr(request, 'guest_token', None) or request.headers.get('X-Guest-Token')
     if not guest_token:
-        # Also check if direct invitation code is provided
-        invitation_code = (
-            request.headers.get('X-Invitation-Code')
-            or request.query_params.get('invitation_code')
-            or (request.data.get('invitation_code') if isinstance(request.data, dict) else None)
-        )
-        if invitation_code:
-            invitation = Invitation.get_by_sqid(invitation_code)
-            if invitation and invitation.is_valid() and invitation.is_guest:
-                if porchlight and invitation.porchlight_id != porchlight.id:
-                    return None
-                return invitation
         return None
 
     try:
@@ -51,7 +34,6 @@ def can_view_porchlight(request, porchlight):
     guest_token = (
         getattr(request, 'guest_token', None)
         or request.headers.get('X-Guest-Token')
-        or request.query_params.get('guest_token')
     )
 
     if porchlight.brightness > 0:

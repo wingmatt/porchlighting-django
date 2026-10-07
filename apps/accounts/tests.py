@@ -6,6 +6,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from apps.porchlights.models import GuestSession, Invitation, Porchlight
 from .models import FCMDeviceToken, WebPushSubscription
 
 User = get_user_model()
@@ -143,24 +144,42 @@ class AuthAPITests(TestCase):
 
     def test_fcm_token_registration_guest(self):
         url = reverse('accounts:fcm-register')
+        owner = User.objects.create_user(email='guest-owner@example.com', password='Password123!')
+        porchlight = Porchlight.objects.create(name='Guest light', owner=owner)
+        invitation = Invitation.objects.create(porchlight=porchlight, is_guest=True)
+        GuestSession.objects.create(invitation=invitation, guest_token='guest-token-123')
         payload = {
             'registration_token': 'test-fcm-token-guest',
             'device_id': 'device-guest',
             'device_type': 'ios',
-            'guest_token': 'guest-token-123',
         }
-        res = self.client.post(url, payload, format='json')
+        res = self.client.post(url, payload, format='json', HTTP_X_GUEST_TOKEN='guest-token-123')
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertTrue(FCMDeviceToken.objects.filter(guest_token='guest-token-123', registration_token='test-fcm-token-guest').exists())
 
     def test_fcm_token_unregister(self):
-        token = FCMDeviceToken.objects.create(registration_token='token-to-delete', device_id='d1')
+        user = User.objects.create_user(email='fcm-delete@example.com', password='Password123!')
+        token = FCMDeviceToken.objects.create(user=user, registration_token='token-to-delete', device_id='d1')
         self.assertTrue(token.is_active)
         url = reverse('accounts:fcm-unregister')
+        self.client.force_authenticate(user=user)
         res = self.client.post(url, {'registration_token': 'token-to-delete'}, format='json')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         token.refresh_from_db()
         self.assertFalse(token.is_active)
+
+    def test_fcm_token_cannot_be_unregistered_by_another_user(self):
+        owner = User.objects.create_user(email='fcm-owner@example.com', password='Password123!')
+        other = User.objects.create_user(email='fcm-other@example.com', password='Password123!')
+        FCMDeviceToken.objects.create(user=owner, registration_token='protected-token')
+        self.client.force_authenticate(user=other)
+        response = self.client.post(
+            reverse('accounts:fcm-unregister'),
+            {'registration_token': 'protected-token'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(FCMDeviceToken.objects.get(registration_token='protected-token').is_active)
 
     def test_firebase_token_endpoint(self):
         user = User.objects.create_user(email='fbuser@example.com', password='Password123!')

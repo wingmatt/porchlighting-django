@@ -155,6 +155,8 @@ REST_FRAMEWORK = {
         'user': os.getenv('DRF_USER_RATE', '1000/hour'),
         'auth': os.getenv('DRF_AUTH_RATE', '10/minute'),
         'guest': os.getenv('DRF_GUEST_RATE', '60/minute'),
+        'geocode': os.getenv('DRF_GEOCODE_RATE', '30/hour'),
+        'provider': os.getenv('DRF_PROVIDER_RATE', '60/hour'),
     },
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
@@ -162,6 +164,12 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.MultiPartParser',
     ],
 }
+
+# Bound request parsing before application code or third-party providers run.
+# NGINX/Fastly must enforce equivalent limits at the origin boundary.
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv('DJANGO_MAX_REQUEST_BYTES', str(2 * 1024 * 1024)))
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv('DJANGO_MAX_UPLOAD_BYTES', str(2 * 1024 * 1024)))
+DATA_UPLOAD_MAX_NUMBER_FIELDS = int(os.getenv('DJANGO_MAX_FORM_FIELDS', '100'))
 
 # Browser security defaults. Production overrides the transport settings below,
 # while these values remain safe for API clients and local development.

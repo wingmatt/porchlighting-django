@@ -27,6 +27,29 @@ from .serializers import (
 User = get_user_model()
 
 
+def _request_guest_token(request):
+    """Return only the middleware/header guest credential, never body or URL input."""
+    return getattr(request, 'guest_token', None) or request.headers.get('X-Guest-Token')
+
+
+def _valid_guest_token(token):
+    """Check that a guest credential still maps to an active access grant."""
+    if not token:
+        return False
+    session = GuestSession.objects.select_related('invitation').filter(guest_token=token).first()
+    return bool(session and session.is_valid()) or Permission.objects.filter(guest_id=token).exists()
+
+
+def _request_actor(request):
+    """Return the authenticated user or a validated guest token, exclusively."""
+    if request.user and request.user.is_authenticated:
+        return request.user, None
+    guest_token = _request_guest_token(request)
+    if _valid_guest_token(guest_token):
+        return None, guest_token
+    return None, None
+
+
 class RegisterView(generics.CreateAPIView):
     """Register a new user with email and password."""
 
@@ -99,7 +122,8 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data['user']
-        token, _ = Token.objects.get_or_create(user=user)
+        Token.objects.filter(user=user).delete()
+        token = Token.objects.create(user=user)
         firebase_token = create_firebase_custom_token(str(user.id), {'email': user.email})
         return Response(
             {
@@ -197,7 +221,8 @@ class MagicLoginConfirmView(APIView):
             return Response({'error': 'Invalid magic login link.'}, status=status.HTTP_400_BAD_REQUEST)
         if not user.is_active or not default_token_generator.check_token(user, token):
             return Response({'error': 'This magic login link is invalid or has already been used.'}, status=status.HTTP_400_BAD_REQUEST)
-        api_token, _ = Token.objects.get_or_create(user=user)
+        Token.objects.filter(user=user).delete()
+        api_token = Token.objects.create(user=user)
         user.last_login = timezone.now()
         user.save(update_fields=['last_login'])
         firebase_token = create_firebase_custom_token(str(user.id), {'email': user.email})
@@ -228,27 +253,20 @@ class FirebaseCustomTokenView(APIView):
     """Mint a Firebase Custom Auth Token for authenticated users or guest tokens."""
 
     permission_classes = [permissions.AllowAny]
-    throttle_scope = 'auth'
+    throttle_scope = 'provider'
 
     def post(self, request, *args, **kwargs):
         if request.user and request.user.is_authenticated:
             uid = str(request.user.id)
             claims = {'email': request.user.email}
         else:
-            guest_token = (
-                request.data.get('guest_token')
-                or request.query_params.get('guest_token')
-                or request.headers.get('X-Guest-Token')
-            )
+            guest_token = _request_guest_token(request)
             if not guest_token:
                 return Response(
                     {'error': 'Authentication or guest_token is required.'},
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
-            guest_session = GuestSession.objects.filter(guest_token=guest_token).first()
-            has_guest_access = guest_session and guest_session.is_valid()
-            has_guest_access = has_guest_access or Permission.objects.filter(guest_id=guest_token).exists()
-            if not has_guest_access:
+            if not _valid_guest_token(guest_token):
                 return Response(
                     {'error': 'The guest token is invalid or expired.'},
                     status=status.HTTP_401_UNAUTHORIZED,
@@ -269,6 +287,7 @@ class FCMDeviceRegisterView(APIView):
     """Register or update an FCM device token for push notifications."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'provider'
 
     def post(self, request, *args, **kwargs):
         serializer = FCMDeviceTokenSerializer(data=request.data)
@@ -277,22 +296,31 @@ class FCMDeviceRegisterView(APIView):
         registration_token = serializer.validated_data['registration_token']
         device_id = serializer.validated_data.get('device_id', '')
         device_type = serializer.validated_data.get('device_type', 'android')
-        guest_token = serializer.validated_data.get('guest_token')
-
-        user = request.user if request.user and request.user.is_authenticated else None
+        user, guest_token = _request_actor(request)
         if not user and not guest_token:
-            guest_token = request.headers.get('X-Guest-Token') or request.query_params.get('guest_token')
+            return Response({'detail': 'Authentication or a valid guest token is required.'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        device, created = FCMDeviceToken.objects.update_or_create(
-            registration_token=registration_token,
-            defaults={
-                'user': user,
-                'guest_token': guest_token,
-                'device_id': device_id,
-                'device_type': device_type,
-                'is_active': True,
-            },
-        )
+        device = FCMDeviceToken.objects.filter(registration_token=registration_token).first()
+        if device and (device.user_id != getattr(user, 'id', None) or device.guest_token != guest_token):
+            return Response({'detail': 'This device token belongs to another actor.'}, status=status.HTTP_403_FORBIDDEN)
+        if device:
+            device.user = user
+            device.guest_token = guest_token
+            device.device_id = device_id
+            device.device_type = device_type
+            device.is_active = True
+            device.save(update_fields=['user', 'guest_token', 'device_id', 'device_type', 'is_active', 'updated_at'])
+            created = False
+        else:
+            device = FCMDeviceToken.objects.create(
+                registration_token=registration_token,
+                user=user,
+                guest_token=guest_token,
+                device_id=device_id,
+                device_type=device_type,
+                is_active=True,
+            )
+            created = True
 
         return Response(
             {
@@ -307,13 +335,18 @@ class FCMDeviceUnregisterView(APIView):
     """Unregister/deactivate an FCM device token."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'provider'
 
     def post(self, request, *args, **kwargs):
         serializer = FCMDeviceTokenUnregisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         registration_token = serializer.validated_data['registration_token']
-        updated = FCMDeviceToken.objects.filter(registration_token=registration_token).update(is_active=False)
+        user, guest_token = _request_actor(request)
+        if not user and not guest_token:
+            return Response({'detail': 'Authentication or a valid guest token is required.'}, status=status.HTTP_401_UNAUTHORIZED)
+        owner_filter = {'user': user} if user else {'guest_token': guest_token}
+        updated = FCMDeviceToken.objects.filter(registration_token=registration_token, **owner_filter).update(is_active=False)
 
         if updated == 0:
             return Response({'message': 'Device token not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -325,12 +358,18 @@ class WebPushRegisterView(APIView):
     """Register a browser Push API subscription for an authenticated user or guest."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'provider'
 
     def post(self, request, *args, **kwargs):
         serializer = WebPushSubscriptionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = request.user if request.user and request.user.is_authenticated else None
-        guest_token = None if user else (request.headers.get('X-Guest-Token') or request.data.get('guest_token'))
+        guest_token = None if user else _request_guest_token(request)
+        if not user and not _valid_guest_token(guest_token):
+            return Response({'detail': 'Authentication or a valid guest token is required.'}, status=status.HTTP_401_UNAUTHORIZED)
+        existing = WebPushSubscription.objects.filter(endpoint=serializer.validated_data['endpoint']).first()
+        if existing and (existing.user_id != getattr(user, 'id', None) or existing.guest_token != guest_token):
+            return Response({'detail': 'This subscription belongs to another actor.'}, status=status.HTTP_403_FORBIDDEN)
         if not user and not guest_token:
             return Response({'detail': 'Authentication or a guest token is required.'}, status=status.HTTP_401_UNAUTHORIZED)
         subscription, created = WebPushSubscription.objects.update_or_create(
@@ -344,10 +383,15 @@ class WebPushUnregisterView(APIView):
     """Deactivate a browser Push API subscription."""
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'provider'
 
     def post(self, request, *args, **kwargs):
         endpoint = request.data.get('endpoint')
         if not endpoint:
             return Response({'detail': 'An endpoint is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        updated = WebPushSubscription.objects.filter(endpoint=endpoint).update(is_active=False)
+        user, guest_token = _request_actor(request)
+        if not user and not guest_token:
+            return Response({'detail': 'Authentication or a valid guest token is required.'}, status=status.HTTP_401_UNAUTHORIZED)
+        owner_filter = {'user': user} if user else {'guest_token': guest_token}
+        updated = WebPushSubscription.objects.filter(endpoint=endpoint, **owner_filter).update(is_active=False)
         return Response({'message': 'Web Push subscription removed.', 'updated': bool(updated)})

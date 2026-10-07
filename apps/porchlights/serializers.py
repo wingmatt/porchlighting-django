@@ -28,6 +28,11 @@ class PorchlightMemberSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'user_email', 'user_name', 'role', 'role_display', 'created_at']
         read_only_fields = ['id', 'created_at']
 
+    def validate_role(self, value):
+        if value == PorchlightRole.OWNER:
+            raise serializers.ValidationError('The owner cannot be assigned as a membership role.')
+        return value
+
 
 class PermissionSerializer(serializers.ModelSerializer):
     """Serializer for permission grants matching Laravel Permission model."""
@@ -52,7 +57,15 @@ class PermissionSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'porchlight', 'from_invitation', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'guest_id': {'write_only': True},
+        }
+
+    def validate_role(self, value):
+        if value == 'owner':
+            raise serializers.ValidationError('Owner access cannot be granted through a permission record.')
+        return value
 
 
 class RsvpSerializer(serializers.ModelSerializer):
@@ -73,7 +86,7 @@ class RsvpSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'porchlight', 'user', 'guest_id', 'created_at', 'updated_at']
 
 
 class PorchlightSerializer(serializers.ModelSerializer):
@@ -168,7 +181,6 @@ class PorchlightSerializer(serializers.ModelSerializer):
         guest_token = (
             getattr(request, 'guest_token', None)
             or request.headers.get('X-Guest-Token')
-            or request.query_params.get('guest_token')
         )
         if guest_token:
             session = GuestSession.objects.filter(guest_token=guest_token, invitation__porchlight=obj).first()
@@ -323,6 +335,16 @@ class InvitationCreateSerializer(serializers.ModelSerializer):
         if not (is_owner or is_admin or has_share_permission):
             raise serializers.ValidationError('You do not have permission to invite users to this Porchlight.')
 
+        return value
+
+    def validate_role(self, value):
+        if value == PorchlightRole.OWNER:
+            raise serializers.ValidationError('Owner invitations are not permitted.')
+        return value
+
+    def validate_role_granted(self, value):
+        if value and value.lower() == 'owner':
+            raise serializers.ValidationError('Owner invitations are not permitted.')
         return value
 
     def create(self, validated_data):

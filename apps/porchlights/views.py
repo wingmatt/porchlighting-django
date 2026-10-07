@@ -157,11 +157,14 @@ class GeocodeAddressView(APIView):
     """Resolve a street address through Geocodio without exposing its API key."""
 
     permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = 'geocode'
 
     def post(self, request, *args, **kwargs):
         address = str(request.data.get('address', '')).strip()
         if not address:
             return Response({'detail': 'An address is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(address) > 500:
+            return Response({'detail': 'Address must be 500 characters or fewer.'}, status=status.HTTP_400_BAD_REQUEST)
         if not settings.GEOCODIO_API_KEY:
             return Response(
                 {'detail': 'Address lookup is not configured.'},
@@ -778,9 +781,14 @@ class PorchlightMemberListView(generics.ListCreateAPIView):
 class PorchlightMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Manage a specific porchlight membership."""
 
-    queryset = PorchlightMember.objects.all()
     serializer_class = PorchlightMemberSerializer
     permission_classes = [IsPorchlightOwnerOrAdmin]
+
+    def get_queryset(self):
+        porchlight = Porchlight.get_by_sqid(self.kwargs['porchlight_pk'])
+        if not porchlight:
+            return PorchlightMember.objects.none()
+        return PorchlightMember.objects.filter(porchlight=porchlight)
 
 
 class RsvpListCreateView(generics.ListCreateAPIView):
@@ -875,6 +883,8 @@ class PermissionListCreateView(generics.ListCreateAPIView):
             porchlight = get_porchlight_by_identifier(porchlight_id)
             if not porchlight:
                 raise Http404
+            if not can_manage_porchlight_access(self.request, porchlight):
+                raise PermissionDenied('You do not have permission to grant access to this porchlight.')
             serializer.save(porchlight=porchlight)
         else:
-            serializer.save()
+            raise ValidationError({'porchlight': 'A porchlight is required.'})

@@ -1,4 +1,5 @@
 """Middleware for guest and token authentication."""
+import uuid
 
 
 class GuestAuthMiddleware:
@@ -12,4 +13,7 @@ class GuestAuthMiddleware:
         guest_name = request.headers.get('X-Guest-Name')
         request.guest_token = guest_token
         request.guest_name = guest_name
-        return self.get_response(request)
+        request.correlation_id = str(uuid.uuid4())
+        response = self.get_response(request)
+        response['X-Request-ID'] = request.correlation_id
+        return response

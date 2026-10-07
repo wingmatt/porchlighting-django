@@ -75,10 +75,13 @@ class FCMDeviceTokenSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FCMDeviceToken
-        fields = ['id', 'registration_token', 'device_id', 'device_type', 'guest_token', 'is_active', 'created_at', 'updated_at']
+        fields = ['id', 'registration_token', 'device_id', 'device_type', 'is_active', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
         extra_kwargs = {
-            'registration_token': {'validators': []},  # Allow update_or_create on existing registration_token
+            'registration_token': {
+                'validators': [],
+                'write_only': True,
+            },  # Allow ownership checks before update_or_create
         }
 
 
@@ -101,4 +104,6 @@ class WebPushSubscriptionSerializer(serializers.ModelSerializer):
     def validate_endpoint(self, value):
         if not value.startswith('https://'):
             raise serializers.ValidationError('A secure HTTPS push endpoint is required.')
+        if len(value) > 2048:
+            raise serializers.ValidationError('The push endpoint is too long.')
         return value
