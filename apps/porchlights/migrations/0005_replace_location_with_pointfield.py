@@ -2,7 +2,7 @@ from django.contrib.gis.db import models as gis_models
 from django.db import migrations
 
 
-def replace_location_column(schema_editor):
+def replace_location_column(apps, schema_editor):
     """Replace disposable JSON location data with an empty spatial column."""
     table = schema_editor.quote_name('porchlights_porchlight')
     schema_editor.execute(f'ALTER TABLE {table} DROP COLUMN location')
