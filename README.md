@@ -6,7 +6,8 @@ Porchlight backend built with Django 6.1+, Django REST Framework (DRF), PostgreS
 
 - **Python**: Version `>= 3.13`
 - **uv**: Fast Python package and environment manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
-- **PostgreSQL / PostGIS** (Production / optional local PostgreSQL): PostgreSQL database with PostGIS spatial extension enabled
+- **PostgreSQL / PostGIS**: PostgreSQL database with the PostGIS spatial extension enabled
+- **GDAL / GEOS / PROJ**: Native GeoDjango libraries; Windows users can install them with [OSGeo4W](https://trac.osgeo.org/osgeo4w/)
 - **Git**
 
 ---
@@ -39,16 +40,19 @@ Create a `.env` file in the project root directory:
 DJANGO_SECRET_KEY=your-local-secret-key
 DEBUG=True
 
-# Database Configuration
-# Local development defaults to SQLite. To use PostgreSQL / PostGIS locally or in production:
+# Database Configuration (required for development and tests)
+# PointField data requires PostgreSQL with PostGIS enabled.
+# Use a DATABASE_URL, or configure the individual variables below:
 # DATABASE_URL=postgis://postgres:postgres@localhost:5432/porchlight_db
-# Or individual variables:
 # POSTGRES_DB=porchlight_db
 # POSTGRES_USER=postgres
 # POSTGRES_PASSWORD=postgres
 # POSTGRES_HOST=localhost
 # POSTGRES_PORT=5432
-# USE_POSTGRES=True
+# DB_ENGINE=django.contrib.gis.db.backends.postgis
+# On Windows, set these if the native libraries are not on PATH:
+# GDAL_LIBRARY_PATH=C:\\OSGeo4W\\bin\\gdal311.dll
+# GEOS_LIBRARY_PATH=C:\\OSGeo4W\\bin\\geos_c.dll
 
 # Firebase Settings (Used to broadcast database updates in real-time)
 FIREBASE_CREDENTIALS_PATH=path/to/firebase-service-account.json
@@ -77,6 +81,41 @@ DEFAULT_FROM_EMAIL=no-reply@porchlight.local
 ```
 
 > **Note**: Missing Firebase credentials will be handled gracefully during local development and automated testing if Firebase features are not actively invoked.
+
+### Local PostGIS service
+
+Start a PostgreSQL instance with PostGIS enabled before running Django commands.
+The development settings use `porchlight_dev` with user `porchlight` on
+`localhost:5432` by default; override those values with `DATABASE_URL` or the
+`POSTGRES_*`/`DB_*` variables above. Create the database and enable the
+extension once as the database administrator:
+
+```sql
+CREATE DATABASE porchlight_dev;
+CREATE EXTENSION postgis;
+```
+
+Run migrations and tests with `uv run python manage.py migrate` and
+`uv run python manage.py test` from `porchlight-django`.
+
+### Windows GeoDjango libraries
+
+GeoDjango loads GDAL during Django startup, before it connects to PostgreSQL.
+Install OSGeo4W and select GDAL, GEOS, and PROJ. Add `C:\\OSGeo4W\\bin` to
+`PATH`, or set the exact installed DLL paths in `.env` using
+`GDAL_LIBRARY_PATH` and `GEOS_LIBRARY_PATH` (the GDAL filename is versioned and
+may not be `gdal311.dll`). Restart the terminal after changing environment
+variables, then verify the installation:
+
+```powershell
+uv run python manage.py check
+```
+
+If the check still reports a missing library, inspect `C:\\OSGeo4W\\bin` for
+`gdal*.dll` and use that full path for `GDAL_LIBRARY_PATH`; `geos_c.dll` should
+be used for `GEOS_LIBRARY_PATH`. This is separate from the PostgreSQL/PostGIS
+server: both the native client libraries and a PostGIS-enabled database are
+required.
 
 ### Local email with MailPit
 
@@ -141,7 +180,7 @@ Never commit Sentry DSNs with sensitive configurations or New Relic license keys
 
 ### 4. Apply Database Migrations
 
-Initialize the database (SQLite for local dev by default, or PostgreSQL/PostGIS in production) with the migrations:
+Initialize the PostgreSQL/PostGIS database with the migrations:
 
 ```bash
 uv run python manage.py migrate

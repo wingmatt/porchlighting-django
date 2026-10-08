@@ -29,7 +29,7 @@ class RsvpInline(admin.TabularInline):
 class PorchlightAdmin(admin.ModelAdmin):
     list_display = ('name', 'type', 'owner', 'is_on', 'is_active', 'active_until', 'brightness', 'color', 'created_at')
     list_filter = ('is_on', 'type', 'created_at')
-    search_fields = ('name', 'description', 'location', 'owner__email')
+    search_fields = ('name', 'description', 'owner__email')
     inlines = [PorchlightMemberInline, InvitationInline, PermissionInline, RsvpInline]
 
 

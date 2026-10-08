@@ -1,8 +1,11 @@
 """Models for Porchlights, Beacons, Memberships, Invitations, Permissions, and RSVPs."""
+import math
 import secrets
 import uuid
 from django.conf import settings
+from django.contrib.gis.geos import Point
 from django.db import models, transaction
+from django.contrib.gis.db.models import PointField
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -11,6 +14,37 @@ from sqids import Sqids
 from apps.core.firebase import sync_porchlight_to_firebase
 
 sqids = Sqids(min_length=8)
+
+
+def geojson_to_point(value):
+    """Convert a GeoJSON Point object to a validated WGS84 GEOS point."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or value.get('type') != 'Point':
+        raise ValueError('Location must be a GeoJSON Point.')
+    coordinates = value.get('coordinates')
+    if not isinstance(coordinates, (list, tuple)) or len(coordinates) != 2:
+        raise ValueError('A GeoJSON Point must contain exactly two coordinates.')
+    try:
+        longitude, latitude = (float(coordinate) for coordinate in coordinates)
+    except (TypeError, ValueError):
+        raise ValueError('Point coordinates must be numeric.') from None
+    if not all(map(math.isfinite, (longitude, latitude))):
+        raise ValueError('Point coordinates must be finite.')
+    if not -180 <= longitude <= 180:
+        raise ValueError('Longitude must be between -180 and 180.')
+    if not -90 <= latitude <= 90:
+        raise ValueError('Latitude must be between -90 and 90.')
+    return Point(longitude, latitude, srid=4326)
+
+
+def point_to_geojson(point):
+    """Convert a GEOS point to a JSON-safe GeoJSON Point object."""
+    if point is None:
+        return None
+    if not isinstance(point, Point):
+        raise ValueError('Location must be a GEOS Point.')
+    return {'type': 'Point', 'coordinates': [float(point.x), float(point.y)]}
 
 
 class NumericIdAllocator(models.Model):
@@ -51,10 +85,12 @@ class Porchlight(models.Model):
     type = models.CharField(max_length=100, default='virtual', help_text=_('Type of beacon/porchlight'))
     active_duration = models.IntegerField(default=4, help_text=_('Active duration in hours'))
     active_until = models.DateTimeField(null=True, blank=True, help_text=_('Active expiration timestamp'))
-    location = models.JSONField(
+    location = PointField(
+        geography=True,
+        srid=4326,
         null=True,
         blank=True,
-        help_text=_('Geocoordinates (e.g. {"latitude": float, "longitude": float}) or location data'),
+        help_text=_('WGS84 geographic point using GeoJSON [longitude, latitude] coordinates'),
     )
     description = models.TextField(blank=True, help_text=_('Optional location description'))
     owner = models.ForeignKey(
@@ -99,36 +135,8 @@ class Porchlight(models.Model):
 
     @property
     def coordinates(self) -> dict | None:
-        """Extract normalized geocoordinates {latitude: float, longitude: float} if available."""
-        if not self.location:
-            return None
-        if isinstance(self.location, dict):
-            lat = self.location.get('latitude') if 'latitude' in self.location else self.location.get('lat')
-            lng = (
-                self.location.get('longitude')
-                if 'longitude' in self.location
-                else (self.location.get('lng') if 'lng' in self.location else self.location.get('lon'))
-            )
-            if lat is not None and lng is not None:
-                try:
-                    return {'latitude': float(lat), 'longitude': float(lng)}
-                except (ValueError, TypeError):
-                    pass
-            # GeoJSON Point format
-            coords = self.location.get('coordinates')
-            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
-                try:
-                    return {'longitude': float(coords[0]), 'latitude': float(coords[1])}
-                except (ValueError, TypeError):
-                    pass
-        elif isinstance(self.location, str):
-            parts = [p.strip() for p in self.location.split(',') if p.strip()]
-            if len(parts) == 2:
-                try:
-                    return {'latitude': float(parts[0]), 'longitude': float(parts[1])}
-                except (ValueError, TypeError):
-                    pass
-        return None
+        """Return the canonical GeoJSON location for compatibility callers."""
+        return point_to_geojson(self.location)
 
     def is_active(self) -> bool:
         """Check if beacon/porchlight is currently active based on active_until."""
@@ -155,7 +163,7 @@ class Porchlight(models.Model):
             'active_duration': self.active_duration,
             'active_until': self.active_until.isoformat() if self.active_until else None,
             'is_active': self.is_active(),
-            'location': self.location or None,
+            'location': point_to_geojson(self.location),
             'coordinates': self.coordinates,
             'is_on': self.is_on,
             'brightness': self.brightness,

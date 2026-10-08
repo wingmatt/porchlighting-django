@@ -11,7 +11,7 @@ load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-django-dev-secret-key-change-in-prod')
 
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = []
 
@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
+    'django.contrib.gis',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
@@ -68,11 +69,18 @@ TEMPLATES = [
 WSGI_APPLICATION = 'porchlight_backend.wsgi.application'
 ASGI_APPLICATION = 'porchlight_backend.asgi.application'
 
-# Database defaults to SQLite
+# Database default. Development overrides this with the PostGIS connection
+# assembled from DATABASE_URL or the POSTGRES_/DB_ environment variables.
+GDAL_LIBRARY_PATH = os.getenv('GDAL_LIBRARY_PATH') or None
+GEOS_LIBRARY_PATH = os.getenv('GEOS_LIBRARY_PATH') or None
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
+        'NAME': os.getenv('DB_NAME', os.getenv('POSTGRES_DB', 'porchlight')),
+        'USER': os.getenv('DB_USER', os.getenv('POSTGRES_USER', 'porchlight')),
+        'PASSWORD': os.getenv('DB_PASSWORD', os.getenv('POSTGRES_PASSWORD', '')),
+        'HOST': os.getenv('DB_HOST', os.getenv('POSTGRES_HOST', 'localhost')),
+        'PORT': os.getenv('DB_PORT', os.getenv('POSTGRES_PORT', '5432')),
     }
 }
 

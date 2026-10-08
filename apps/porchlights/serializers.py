@@ -11,6 +11,8 @@ from .models import (
     PorchlightMember,
     PorchlightRole,
     Rsvp,
+    geojson_to_point,
+    point_to_geojson,
 )
 
 User = get_user_model()
@@ -89,6 +91,21 @@ class RsvpSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'porchlight', 'user', 'guest_id', 'created_at', 'updated_at']
 
 
+class GeoJSONPointField(serializers.Field):
+    """Serialize WGS84 GEOS points as GeoJSON and validate client input."""
+
+    default_error_messages = {'invalid': '{message}'}
+
+    def to_internal_value(self, data):
+        try:
+            return geojson_to_point(data)
+        except ValueError as error:
+            self.fail('invalid', message=str(error))
+
+    def to_representation(self, value):
+        return point_to_geojson(value)
+
+
 class PorchlightSerializer(serializers.ModelSerializer):
     """Serializer for Porchlight/Beacon list and general view."""
 
@@ -97,7 +114,7 @@ class PorchlightSerializer(serializers.ModelSerializer):
     user_role = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
     is_active = serializers.BooleanField(read_only=True)
-    coordinates = serializers.SerializerMethodField()
+    location = GeoJSONPointField(required=False, allow_null=True)
     sqid = serializers.CharField(read_only=True)
     rsvp_count = serializers.IntegerField(read_only=True)
     has_rsvp = serializers.SerializerMethodField()
@@ -115,7 +132,6 @@ class PorchlightSerializer(serializers.ModelSerializer):
             'active_until',
             'is_active',
             'location',
-            'coordinates',
             'description',
             'owner',
             'owner_email',
@@ -132,7 +148,7 @@ class PorchlightSerializer(serializers.ModelSerializer):
             'rsvp_id',
             'has_close_permission',
         ]
-        read_only_fields = ['id', 'owner', 'is_active', 'coordinates', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'owner', 'is_active', 'created_at', 'updated_at']
 
     def _current_rsvp(self, obj):
         annotated_id = getattr(obj, 'current_rsvp_id', None)
@@ -158,8 +174,6 @@ class PorchlightSerializer(serializers.ModelSerializer):
             return obj.has_close_permission
         return obj.permission_grants.filter(is_close=True).exists()
 
-    def get_coordinates(self, obj) -> dict | None:
-        return obj.coordinates
 
     def get_user_role(self, obj) -> str:
         computed_role = getattr(obj, 'computed_user_role', None)
@@ -224,6 +238,7 @@ class PorchlightControlSerializer(serializers.ModelSerializer):
     """Serializer for toggling or updating Porchlight state."""
 
     brightness = serializers.IntegerField(min_value=0, max_value=100, required=False)
+    location = GeoJSONPointField(required=False, allow_null=True)
 
     class Meta:
         model = Porchlight

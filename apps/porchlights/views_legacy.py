@@ -191,7 +191,10 @@ class GeocodeAddressView(APIView):
                 {'detail': 'Geocodio returned an invalid coordinate.'},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        return Response({'latitude': float(location.lat), 'longitude': float(location.lng)})
+        return Response({
+            'type': 'Point',
+            'coordinates': [float(location.lng), float(location.lat)],
+        })
 
 
 # BeaconListCreateView alias for Laravel migration route compatibility

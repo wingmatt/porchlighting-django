@@ -19,45 +19,33 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
-# Development database configuration
-# Defaults to SQLite for local development; allows overriding with local Postgres/PostGIS if configured
-if os.getenv('DATABASE_URL') or os.getenv('USE_POSTGRES', 'False').lower() in ('true', '1', 't'):
-    database_url = os.getenv('DATABASE_URL')
-    if database_url:
-        import urllib.parse
-        parsed = urllib.parse.urlparse(database_url)
-        engine = os.getenv(
-            'DB_ENGINE',
-            'django.contrib.gis.db.backends.postgis'
-            if 'postgis' in parsed.scheme or 'postgres' in parsed.scheme
-            else parsed.scheme,
-        )
-        DATABASES = {
-            'default': {
-                'ENGINE': engine,
-                'NAME': parsed.path.lstrip('/'),
-                'USER': parsed.username or '',
-                'PASSWORD': parsed.password or '',
-                'HOST': parsed.hostname or '',
-                'PORT': str(parsed.port or 5432),
-            }
+# Development database configuration. PointField requires a spatial backend,
+# so local development and tests use PostGIS rather than silently falling back
+# to SQLite.
+database_url = os.getenv('DATABASE_URL')
+if database_url:
+    import urllib.parse
+
+    parsed = urllib.parse.urlparse(database_url)
+    DATABASES = {
+        'default': {
+            'ENGINE': os.getenv('DB_ENGINE', 'django.contrib.gis.db.backends.postgis'),
+            'NAME': parsed.path.lstrip('/'),
+            'USER': parsed.username or '',
+            'PASSWORD': parsed.password or '',
+            'HOST': parsed.hostname or '',
+            'PORT': str(parsed.port or 5432),
         }
-    else:
-        DATABASES = {
-            'default': {
-                'ENGINE': os.getenv('DB_ENGINE', 'django.contrib.gis.db.backends.postgis'),
-                'NAME': os.getenv('DB_NAME', os.getenv('POSTGRES_DB', 'porchlight_dev')),
-                'USER': os.getenv('DB_USER', os.getenv('POSTGRES_USER', 'porchlight')),
-                'PASSWORD': os.getenv('DB_PASSWORD', os.getenv('POSTGRES_PASSWORD', '')),
-                'HOST': os.getenv('DB_HOST', os.getenv('POSTGRES_HOST', 'localhost')),
-                'PORT': os.getenv('DB_PORT', os.getenv('POSTGRES_PORT', '5432')),
-            }
-        }
+    }
 else:
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'ENGINE': os.getenv('DB_ENGINE', 'django.contrib.gis.db.backends.postgis'),
+            'NAME': os.getenv('DB_NAME', os.getenv('POSTGRES_DB', 'porchlight_dev')),
+            'USER': os.getenv('DB_USER', os.getenv('POSTGRES_USER', 'porchlight')),
+            'PASSWORD': os.getenv('DB_PASSWORD', os.getenv('POSTGRES_PASSWORD', '')),
+            'HOST': os.getenv('DB_HOST', os.getenv('POSTGRES_HOST', 'localhost')),
+            'PORT': os.getenv('DB_PORT', os.getenv('POSTGRES_PORT', '5432')),
         }
     }
 

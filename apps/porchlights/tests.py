@@ -1,7 +1,9 @@
 """Tests for Porchlight models, Invitations, Memberships, and Permissions."""
 import datetime
+import json
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
+from django.contrib.gis.geos import Point
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -218,7 +220,7 @@ class PorchlightAndPermissionTests(TestCase):
             format='json',
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, {'latitude': 40.7128, 'longitude': -74.006})
+        self.assertEqual(response.data, {'type': 'Point', 'coordinates': [-74.006, 40.7128]})
         mock_geocodio.assert_called_once_with('test-key')
         mock_geocodio.return_value.geocode.assert_called_once_with('New York, NY')
 
@@ -838,8 +840,8 @@ class PorchlightAndPermissionTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
     def test_location_geocoordinates_and_firebase_broadcast(self):
-        # 1. Update location with geocoordinates dictionary
-        coords = {'latitude': 37.774929, 'longitude': -122.419416}
+        # 1. Update location with the canonical GeoJSON Point
+        coords = {'type': 'Point', 'coordinates': [-122.419416, 37.774929]}
         self.client.force_authenticate(user=self.owner)
         control_url = reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid})
         res = self.client.post(
@@ -849,21 +851,12 @@ class PorchlightAndPermissionTests(TestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.porchlight.refresh_from_db()
-        self.assertEqual(self.porchlight.location, coords)
-        self.assertIsNotNone(self.porchlight.coordinates)
-        self.assertAlmostEqual(self.porchlight.coordinates['latitude'], 37.774929, places=5)
-        self.assertAlmostEqual(self.porchlight.coordinates['longitude'], -122.419416, places=5)
+        self.assertIsInstance(self.porchlight.location, Point)
+        self.assertEqual(self.porchlight.location.srid, 4326)
+        self.assertAlmostEqual(self.porchlight.location.x, -122.419416, places=5)
+        self.assertAlmostEqual(self.porchlight.location.y, 37.774929, places=5)
 
-        # 2. Verify payload for Firebase broadcast includes location and coordinates
+        # 2. Verify payload exposes the same JSON-safe GeoJSON object
         payload = self.porchlight.get_firebase_payload()
         self.assertEqual(payload['location'], coords)
-        self.assertIsNotNone(payload['coordinates'])
-        self.assertAlmostEqual(payload['coordinates']['latitude'], 37.774929, places=5)
-        self.assertAlmostEqual(payload['coordinates']['longitude'], -122.419416, places=5)
-
-        # 3. Test string coordinates parsing
-        self.porchlight.location = "40.7128, -74.0060"
-        self.porchlight.save()
-        self.assertIsNotNone(self.porchlight.coordinates)
-        self.assertAlmostEqual(self.porchlight.coordinates['latitude'], 40.7128, places=4)
-        self.assertAlmostEqual(self.porchlight.coordinates['longitude'], -74.0060, places=4)
+        json.dumps(payload)
