@@ -1,6 +1,7 @@
 """API views for Porchlights, Beacons, Invitations, Permissions, RSVPs, Memberships, and Guest Access."""
 
 from django.conf import settings
+from datetime import timedelta
 from django.http import Http404
 from django.db import models, transaction
 from django.db.models import Case, Count, Exists, OuterRef, Prefetch, Q, Subquery, Value, When
@@ -46,6 +47,7 @@ from .serializers import (
     PorchlightSerializer,
     RsvpSerializer,
 )
+from .tasks import expire_porchlight_task
 
 
 def porchlight_queryset(request, detail=False):
@@ -263,7 +265,17 @@ class PorchlightControlView(APIView):
 
         serializer = PorchlightControlSerializer(porchlight, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        if not was_on and porchlight.is_on:
+            porchlight.active_until = timezone.now() + timedelta(hours=porchlight.active_duration)
+        elif was_on and not porchlight.is_on:
+            porchlight.active_until = None
         serializer.save()
+
+        if not was_on and porchlight.is_on:
+            expire_porchlight_task.apply_async(
+                args=[str(porchlight.id)],
+                eta=porchlight.active_until,
+            )
 
         # Celery is the production publication path. Enable this only for
         # environments that explicitly need synchronous fallback behavior.

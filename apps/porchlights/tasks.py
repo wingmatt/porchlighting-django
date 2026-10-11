@@ -3,6 +3,7 @@ import logging
 from celery import shared_task
 from django.core.cache import cache
 from django.db.models import Q
+from django.utils import timezone
 
 from apps.accounts.models import FCMDeviceToken
 from apps.core.firebase import (
@@ -29,6 +30,26 @@ def schedule_porchlight_sync(porchlight_id: str, notify_fcm: bool = True) -> boo
         return False
 
     sync_porchlight_to_firebase_task.delay(porchlight_id, notify_fcm=notify_fcm)
+    return True
+
+
+@shared_task
+def expire_porchlight_task(porchlight_id: str):
+    """Turn off a Porchlight once its active period has elapsed."""
+    from apps.porchlights.models import Porchlight
+
+    try:
+        porchlight = Porchlight.objects.get(pk=porchlight_id)
+    except Porchlight.DoesNotExist:
+        logger.warning("Porchlight %s not found for expiration.", porchlight_id)
+        return False
+
+    if not porchlight.is_on or not porchlight.active_until or porchlight.active_until > timezone.now():
+        return False
+
+    porchlight.is_on = False
+    porchlight.save(update_fields=['is_on', 'updated_at'])
+    schedule_porchlight_sync(str(porchlight.id))
     return True
 
 

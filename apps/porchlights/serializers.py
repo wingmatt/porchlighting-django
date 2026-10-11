@@ -114,6 +114,7 @@ class PorchlightSerializer(serializers.ModelSerializer):
     user_role = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
     is_active = serializers.BooleanField(read_only=True)
+    active_until = serializers.SerializerMethodField()
     location = GeoJSONPointField(required=False, allow_null=True)
     sqid = serializers.CharField(read_only=True)
     rsvp_count = serializers.IntegerField(read_only=True)
@@ -173,6 +174,12 @@ class PorchlightSerializer(serializers.ModelSerializer):
         if hasattr(obj, 'has_close_permission'):
             return obj.has_close_permission
         return obj.permission_grants.filter(is_close=True).exists()
+
+    def get_active_until(self, obj):
+        """Expose the expiration deadline only to owners and edit users."""
+        if self.get_user_role(obj) not in ('OWNER', 'EDIT'):
+            return None
+        return obj.active_until
 
 
     def get_user_role(self, obj) -> str:
@@ -243,6 +250,7 @@ class PorchlightControlSerializer(serializers.ModelSerializer):
     class Meta:
         model = Porchlight
         fields = ['is_on', 'brightness', 'color', 'status_message', 'active_until', 'active_duration', 'location']
+        read_only_fields = ['active_until']
 
 
 class InvitationSerializer(serializers.ModelSerializer):

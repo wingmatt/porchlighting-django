@@ -14,6 +14,7 @@ from rest_framework.test import APIClient
 from .models import GuestSession, Invitation, Permission, Porchlight, PorchlightMember, PorchlightRole
 from .tasks import (
     delete_porchlight_from_firebase_task,
+    expire_porchlight_task,
     send_porchlight_fcm_update_task,
     schedule_porchlight_sync,
     sync_porchlight_to_firebase_task,
@@ -84,6 +85,54 @@ class PorchlightAndPermissionTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         notify.assert_not_called()
+
+    @patch('apps.porchlights.views_legacy.expire_porchlight_task.apply_async')
+    def test_turning_on_sets_four_hour_expiry_and_schedules_turn_off(self, apply_async):
+        self.client.force_authenticate(user=self.owner)
+        before = timezone.now()
+
+        response = self.client.post(
+            reverse('porchlights:porchlight-control', kwargs={'pk': self.porchlight.sqid}),
+            {'action': 'turn_on'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.porchlight.refresh_from_db()
+        self.assertTrue(self.porchlight.is_on)
+        self.assertGreaterEqual(self.porchlight.active_until, before + datetime.timedelta(hours=4))
+        self.assertLessEqual(self.porchlight.active_until, timezone.now() + datetime.timedelta(hours=4))
+        apply_async.assert_called_once_with(
+            args=[str(self.porchlight.id)],
+            eta=self.porchlight.active_until,
+        )
+
+    def test_expiration_turns_off_only_after_deadline(self):
+        self.porchlight.is_on = True
+        self.porchlight.active_until = timezone.now() - datetime.timedelta(seconds=1)
+        self.porchlight.save(update_fields=['is_on', 'active_until'])
+
+        self.assertTrue(expire_porchlight_task(str(self.porchlight.id)))
+        self.porchlight.refresh_from_db()
+        self.assertFalse(self.porchlight.is_on)
+
+    def test_expiry_is_visible_to_owner_and_edit_users_only(self):
+        self.porchlight.active_until = timezone.now() + datetime.timedelta(hours=4)
+        self.porchlight.save(update_fields=['active_until'])
+        detail_url = reverse('porchlights:porchlight-detail', kwargs={'pk': self.porchlight.sqid})
+
+        self.client.force_authenticate(user=self.owner)
+        owner_response = self.client.get(detail_url)
+        self.assertIsNotNone(owner_response.data['active_until'])
+
+        Permission.objects.create(porchlight=self.porchlight, user=self.member, role='view')
+        self.client.force_authenticate(user=self.member)
+        view_response = self.client.get(detail_url)
+        self.assertIsNone(view_response.data['active_until'])
+
+        Permission.objects.filter(porchlight=self.porchlight, user=self.member).update(role='edit')
+        edit_response = self.client.get(detail_url)
+        self.assertIsNotNone(edit_response.data['active_until'])
 
     def test_neighborhood_lists_user_owned_and_granted_porchlights(self):
         owned_porchlight = Porchlight.objects.create(name='Owned Porch', owner=self.member)
