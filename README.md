@@ -111,6 +111,20 @@ variables, then verify the installation:
 uv run python manage.py check
 ```
 
+### CI GeoDjango libraries
+
+Linux CI runners must install the native libraries before Django starts. The
+repository workflow installs the following Ubuntu packages and runs against a
+PostGIS service:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes gdal-bin libgdal-dev libgeos-dev libproj-dev proj-bin
+```
+
+Installing only the Python dependencies is not sufficient because GeoDjango
+loads the GDAL and GEOS shared libraries from the operating system.
+
 If the check still reports a missing library, inspect `C:\\OSGeo4W\\bin` for
 `gdal*.dll` and use that full path for `GDAL_LIBRARY_PATH`; `geos_c.dll` should
 be used for `GEOS_LIBRARY_PATH`. This is separate from the PostgreSQL/PostGIS
