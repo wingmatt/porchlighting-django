@@ -15,6 +15,18 @@ jobs:
       matrix:
         python-version: [3.14]
 
+    services:
+      postgres:
+        image: postgres:10.8
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+        - 5432:5432
+        # needed because the postgres container does not provide a healthcheck
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
@@ -25,6 +37,8 @@ jobs:
       uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
     - name: Install Dependencies
       run: |
+        sudo apt-get update
+        sudo apt-get install --yes gdal-bin libgdal-dev
         uv sync --locked --all-extras --dev
     - name: Run Tests
       run: |
