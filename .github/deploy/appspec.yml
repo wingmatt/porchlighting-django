@@ -1,0 +1,15 @@
+version: 0.0
+os: linux
+files:
+  - source: source
+    destination: /srv/porchlight/porchlight-django
+    overwrite: true
+hooks:
+  AfterInstall:
+    - location: backend-hooks/after-install.sh
+      timeout: 900
+      runas: porchlight-deploy
+  ApplicationStart:
+    - location: backend-hooks/application-start.sh
+      timeout: 120
+      runas: porchlight-deploy

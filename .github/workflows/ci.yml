@@ -1,0 +1,99 @@
+name: Backend CI and deploy
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: porchlight_ci
+          POSTGRES_USER: porchlight
+          POSTGRES_PASSWORD: porchlight
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U porchlight -d porchlight_ci"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DJANGO_ENV: development
+      DJANGO_SECRET_KEY: ci-only-secret
+      DATABASE_URL: postgis://porchlight:porchlight@localhost:5432/porchlight_ci
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+      AWS_ARTIFACT_BUCKET: ${{ vars.AWS_ARTIFACT_BUCKET || 'porchlight-build' }}
+      CODEDEPLOY_APPLICATION: porchlight-backend
+      CODEDEPLOY_DEPLOYMENT_GROUP: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GeoDjango system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            gdal-bin \
+            libgdal-dev \
+            libgeos-dev \
+            libproj-dev \
+            proj-bin
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: latest
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run migrations
+        run: uv run python manage.py migrate --noinput
+
+      - name: Run Django checks and tests
+        run: uv run python manage.py check && uv run python manage.py test
+
+      - name: Package backend deployment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir backend-deploy
+          rsync -a --exclude='.venv' --exclude='__pycache__' --exclude='.git' --exclude='backend-deploy' ./ backend-deploy/source/
+          cp .github/deploy/appspec.yml backend-deploy/appspec.yml
+          cp -R .github/deploy/backend-hooks backend-deploy/backend-hooks
+          (cd backend-deploy && zip -qr ../backend-deploy.zip .)
+
+      - name: Configure AWS credentials
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload deployment artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: aws s3 cp backend-deploy.zip "s3://${AWS_ARTIFACT_BUCKET}/releases/backend/${GITHUB_SHA}/backend.zip"
+
+      - name: Deploy with CodeDeploy
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          deployment_id=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_APPLICATION" \
+            --deployment-group-name "$CODEDEPLOY_DEPLOYMENT_GROUP" \
+            --s3-location bucket="$AWS_ARTIFACT_BUCKET",key="releases/backend/${GITHUB_SHA}/backend.zip",bundleType=zip \
+            --description "Backend ${GITHUB_SHA}" \
+            --query deploymentId --output text)
+          aws deploy wait deployment-successful --deployment-id "$deployment_id"
