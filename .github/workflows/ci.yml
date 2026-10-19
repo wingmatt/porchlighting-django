@@ -75,7 +75,17 @@ jobs:
           cp .github/deploy/appspec.yml backend-deploy/appspec.yml
           cp -R .github/deploy/backend-hooks backend-deploy/backend-hooks
           (cd backend-deploy && zip -qr ../backend-deploy.zip .)
-
+      - name: Diagnose GitHub OIDC context
+        run: |
+          echo "repository=$GITHUB_REPOSITORY"
+          echo "ref=$GITHUB_REF"
+          echo "event=$GITHUB_EVENT_NAME"
+          if [ -n "${{ vars.AWS_ROLE_TO_ASSUME }}" ]; then
+            echo "AWS_ROLE_TO_ASSUME is set"
+          else
+            echo "AWS_ROLE_TO_ASSUME is empty"
+            exit 1
+          fi
       - name: Configure AWS credentials
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: aws-actions/configure-aws-credentials@v4
