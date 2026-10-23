@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Load production configuration from Parameter Store and Secrets Manager."""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from urllib.parse import quote, urlsplit, urlunsplit
+from pathlib import Path
+
+PARAMETER_PATH = "/porchlight/production/"
+DATABASE_SECRET_ID = "porchlight/production/database-url"
+
+
+def aws_json(*arguments):
+    result = subprocess.run(
+        ["aws", *arguments, "--output", "json"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
+def fetch_environment():
+    response = aws_json(
+        "ssm", "get-parameters-by-path", "--path", PARAMETER_PATH,
+        "--recursive", "--with-decryption",
+    )
+    environment = {
+        item["Name"].removeprefix(PARAMETER_PATH): item["Value"]
+        for item in response.get("Parameters", [])
+    }
+    if not environment or any("/" in key for key in environment):
+        raise ValueError("Parameter Store returned no values or an invalid parameter name")
+    secret = aws_json(
+        "secretsmanager", "get-secret-value", "--secret-id", DATABASE_SECRET_ID,
+    )
+    database_url = secret.get("SecretString")
+    if not database_url or "\n" in database_url or "\r" in database_url:
+        raise ValueError("Secrets Manager must contain a non-empty single-line DATABASE_URL")
+    environment["DATABASE_URL"] = database_url
+    environment["DJANGO_ENV"] = "production"
+    return environment
+
+
+def migration_environment(environment):
+    username = environment.get("DB_MIGRATION_USER")
+    password = environment.get("DB_MIGRATION_PASSWORD")
+    if not username or not password:
+        raise ValueError("DB_MIGRATION_USER and DB_MIGRATION_PASSWORD are required for migrations")
+    parsed = urlsplit(environment["DATABASE_URL"])
+    if not parsed.hostname:
+        raise ValueError("DATABASE_URL must contain a database host")
+    host = parsed.hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    netloc = f"{quote(username, safe='')}:{quote(password, safe='')}@{host}"
+    environment["DATABASE_URL"] = urlunsplit(parsed._replace(netloc=netloc))
+    return environment
+
+
+def write_environment_file(environment, destination):
+    lines = []
+    for key, value in environment.items():
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            raise ValueError(f"Invalid environment variable name: {key!r}")
+        if "\n" in value or "\r" in value:
+            raise ValueError(f"Environment value for {key} must be one line")
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'{key}="{escaped}"')
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write("\n".join(lines) + "\n")
+        os.chmod(temporary_name, 0o640)
+        os.replace(temporary_name, path)
+    finally:
+        if os.path.exists(temporary_name):
+            os.unlink(temporary_name)
+
+
+def main():
+    try:
+        environment = fetch_environment()
+        if len(sys.argv) == 3 and sys.argv[1] == "--write-env-file":
+            write_environment_file(environment, sys.argv[2])
+        elif len(sys.argv) >= 3 and sys.argv[1] in ("--", "--migration"):
+            if sys.argv[1] == "--migration":
+                environment = migration_environment(environment)
+            os.execvpe(sys.argv[2], sys.argv[2:], {**os.environ, **environment})
+        else:
+            raise ValueError("usage: load-aws-env.py --write-env-file PATH | -- COMMAND [ARGS...]")
+    except (OSError, subprocess.CalledProcessError, ValueError, json.JSONDecodeError) as error:
+        print(f"error: unable to load production AWS configuration: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
