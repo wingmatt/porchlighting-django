@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Load production configuration from Parameter Store and Secrets Manager."""
+"""Load production configuration from Parameter Store."""
 
 import json
 import os
@@ -11,7 +11,6 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from pathlib import Path
 
 PARAMETER_PATH = "/porchlight/production/"
-DATABASE_SECRET_ID = "porchlight/production/database-url"
 
 
 def aws_json(*arguments):
@@ -35,13 +34,8 @@ def fetch_environment():
     }
     if not environment or any("/" in key for key in environment):
         raise ValueError("Parameter Store returned no values or an invalid parameter name")
-    secret = aws_json(
-        "secretsmanager", "get-secret-value", "--secret-id", DATABASE_SECRET_ID,
-    )
-    database_url = secret.get("SecretString")
-    if not database_url or "\n" in database_url or "\r" in database_url:
-        raise ValueError("Secrets Manager must contain a non-empty single-line DATABASE_URL")
-    environment["DATABASE_URL"] = database_url
+    if not environment.get("DATABASE_URL"):
+        raise ValueError("Parameter Store must contain a non-empty DATABASE_URL")
     environment["DJANGO_ENV"] = "production"
     return environment
 
