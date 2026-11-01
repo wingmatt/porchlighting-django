@@ -41,6 +41,13 @@ database_url = os.getenv('DATABASE_URL')
 if database_url:
     import urllib.parse
     parsed = urllib.parse.urlparse(database_url)
+    database_options = {
+        key: values[-1]
+        for key, values in urllib.parse.parse_qs(parsed.query, keep_blank_values=True).items()
+    }
+    rds_ca_path = os.getenv('RDS_CA_CERT_PATH', '/etc/ssl/certs/rds-global-bundle.pem')
+    if os.path.isfile(rds_ca_path):
+        database_options.setdefault('sslrootcert', rds_ca_path)
     engine = os.getenv(
         'DB_ENGINE',
         'django.contrib.gis.db.backends.postgis'
@@ -54,6 +61,7 @@ if database_url:
         'PASSWORD': parsed.password or '',
         'HOST': parsed.hostname or '',
         'PORT': str(parsed.port or 5432),
+        'OPTIONS': database_options,
     }
 
 # Enable GeoDjango in production
