@@ -11,7 +11,9 @@ load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-django-dev-secret-key-change-in-prod')
 
-DEBUG = True
+# Keep production fail-closed even if an entry point imports the shared
+# settings module without applying the environment-specific override.
+DEBUG = os.getenv('DJANGO_ENV', 'development').strip().lower() != 'production'
 
 ALLOWED_HOSTS = []
 
