@@ -1,4 +1,6 @@
 """Tests for custom User model and accounts authentication."""
+from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import TestCase, override_settings
@@ -68,6 +70,20 @@ class AuthAPITests(TestCase):
         self.assertFalse(user.is_active)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn('Confirm your email address', mail.outbox[0].body)
+
+    @mock.patch('apps.accounts.views.send_mail', side_effect=ConnectionRefusedError)
+    def test_register_email_connection_failure_does_not_create_user(self, send_mail_mock):
+        payload = {
+            'email': 'unreachable-mail@example.com',
+            'password': 'StrongPassword123',
+            'password_confirm': 'StrongPassword123',
+        }
+
+        response = self.client.post(self.register_url, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertFalse(User.objects.filter(email=payload['email']).exists())
+        send_mail_mock.assert_called_once()
 
     def test_confirm_email_activates_user_and_is_one_time(self):
         user = User.objects.create_user(email='confirm@example.com', password='Password123!', is_active=False)

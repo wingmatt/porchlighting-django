@@ -80,12 +80,15 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-# SendGrid SMTP configuration. The API key is supplied as the SMTP password
-# and must never be committed to source control.
+# SendGrid SMTP configuration. Keep the endpoint fixed so a local MailPit
+# value accidentally copied into production cannot make registration connect
+# to the production host's loopback interface.
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.sendgrid.net')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_HOST = 'smtp.sendgrid.net'
+EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_USE_SSL = False
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'apikey')
+EMAIL_HOST_USER = 'apikey'
 EMAIL_HOST_PASSWORD = os.getenv('SENDGRID_API_KEY', '')
+if not EMAIL_HOST_PASSWORD:
+    raise ImproperlyConfigured('SENDGRID_API_KEY must be set in production.')

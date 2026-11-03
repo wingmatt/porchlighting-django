@@ -1,8 +1,11 @@
 """API Views for accounts registration, login, logout, and profile management."""
+import smtplib
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+from django.db import transaction
 from django.http import Http404
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
@@ -60,23 +63,30 @@ class RegisterView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        confirmation_token = default_token_generator.make_token(user)
-        confirmation_url = settings.EMAIL_CONFIRMATION_URL.format(
-            uid=uid,
-            token=confirmation_token,
-        )
-        send_mail(
-            subject='Confirm your Porchlight account',
-            message=(
-                f'Welcome to Porchlight! Confirm your email address by visiting:\n\n'
-                f'{confirmation_url}\n\n'
-                'This link can only be used once.'
-            ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-        )
+        try:
+            with transaction.atomic():
+                user = serializer.save()
+                uid = urlsafe_base64_encode(force_bytes(user.pk))
+                confirmation_token = default_token_generator.make_token(user)
+                confirmation_url = settings.EMAIL_CONFIRMATION_URL.format(
+                    uid=uid,
+                    token=confirmation_token,
+                )
+                send_mail(
+                    subject='Confirm your Porchlight account',
+                    message=(
+                        f'Welcome to Porchlight! Confirm your email address by visiting:\n\n'
+                        f'{confirmation_url}\n\n'
+                        'This link can only be used once.'
+                    ),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                )
+        except (OSError, smtplib.SMTPException):
+            return Response(
+                {'error': 'Registration email could not be sent. Please try again later.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return Response(
             {
                 'user': UserSerializer(user).data,
