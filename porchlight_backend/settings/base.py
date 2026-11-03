@@ -6,8 +6,11 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# Load environment variables from .env if present
-load_dotenv(BASE_DIR / '.env')
+# Load local environment variables only outside production. Production values
+# must come from the process environment (the systemd EnvironmentFile), rather
+# than a stale `.env` copied into the deployment directory.
+if os.getenv('DJANGO_ENV', 'development').strip().lower() != 'production':
+    load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-django-dev-secret-key-change-in-prod')
 

@@ -89,6 +89,15 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_USE_SSL = False
 EMAIL_HOST_USER = 'apikey'
-EMAIL_HOST_PASSWORD = os.getenv('SENDGRID_API_KEY', '')
+EMAIL_HOST_PASSWORD = os.getenv('SENDGRID_API_KEY', '').strip()
 if not EMAIL_HOST_PASSWORD:
     raise ImproperlyConfigured('SENDGRID_API_KEY must be set in production.')
+
+# Do not let the development sender silently reach SendGrid. SendGrid checks
+# the envelope sender against the authenticated sender identity/domain and
+# rejects the message before delivery when it is not verified.
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', '').strip()
+if not DEFAULT_FROM_EMAIL or DEFAULT_FROM_EMAIL.endswith('@porchlight.local'):
+    raise ImproperlyConfigured(
+        'DEFAULT_FROM_EMAIL must be a verified production sender address.'
+    )

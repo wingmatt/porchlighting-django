@@ -1,4 +1,5 @@
 """API Views for accounts registration, login, logout, and profile management."""
+import logging
 import smtplib
 
 from django.conf import settings
@@ -28,6 +29,7 @@ from .serializers import (
 )
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def _request_guest_token(request):
@@ -83,6 +85,7 @@ class RegisterView(generics.CreateAPIView):
                     recipient_list=[user.email],
                 )
         except (OSError, smtplib.SMTPException):
+            logger.exception('Registration email delivery failed')
             return Response(
                 {'error': 'Registration email could not be sent. Please try again later.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
