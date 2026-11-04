@@ -1,12 +1,10 @@
 """API Views for accounts registration, login, logout, and profile management."""
 import logging
-import os
 import smtplib
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
-from django.core import mail
 from django.core.mail import send_mail
 from django.db import transaction
 from django.http import Http404
@@ -75,15 +73,6 @@ class RegisterView(generics.CreateAPIView):
                 confirmation_url = settings.EMAIL_CONFIRMATION_URL.format(
                     uid=uid,
                     token=confirmation_token,
-                )
-                connection = mail.get_connection()
-                logger.error(
-                    'Registration SMTP runtime pid=%s settings_module=%s backend=%s host=%s port=%s',
-                    os.getpid(),
-                    os.environ.get('DJANGO_SETTINGS_MODULE'),
-                    settings.EMAIL_BACKEND,
-                    getattr(connection, 'host', None),
-                    getattr(connection, 'port', None),
                 )
                 send_mail(
                     subject='Confirm your Porchlight account',
