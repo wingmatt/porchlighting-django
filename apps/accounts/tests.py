@@ -71,6 +71,20 @@ class AuthAPITests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn('Confirm your email address', mail.outbox[0].body)
 
+    @override_settings(EMAIL_CONFIRMATION_URL='https://porchlighter.net/confirm-email/{uid}/{token}/')
+    def test_registration_email_uses_frontend_confirmation_route(self):
+        payload = {
+            'email': 'frontend-link@example.com',
+            'password': 'StrongPassword123',
+            'password_confirm': 'StrongPassword123',
+        }
+
+        response = self.client.post(self.register_url, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('https://porchlighter.net/confirm-email/', mail.outbox[0].body)
+        self.assertNotIn('/api/auth/confirm-email/', mail.outbox[0].body)
+
     @mock.patch('apps.accounts.views.send_mail', side_effect=ConnectionRefusedError)
     def test_register_email_connection_failure_does_not_create_user(self, send_mail_mock):
         payload = {

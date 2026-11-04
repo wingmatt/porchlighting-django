@@ -24,6 +24,17 @@ CSRF_TRUSTED_ORIGINS = [
 if not CSRF_TRUSTED_ORIGINS:
     raise ImproperlyConfigured('CSRF_TRUSTED_ORIGINS must list the HTTPS frontend origins in production.')
 
+# Confirmation links must open the frontend flow.  The API endpoint returns
+# JSON for the frontend client and is not suitable as a browser email link.
+default_email_confirmation_url = 'https://porchlighter.net/confirm-email/{uid}/{token}/'
+configured_email_confirmation_url = os.getenv('EMAIL_CONFIRMATION_URL', '').strip()
+EMAIL_CONFIRMATION_URL = (
+    default_email_confirmation_url
+    if not configured_email_confirmation_url
+    or '/api/auth/confirm-email/' in configured_email_confirmation_url
+    else configured_email_confirmation_url
+)
+
 # Database configuration for PostgreSQL with PostGIS in production
 DATABASES = {
     'default': {
