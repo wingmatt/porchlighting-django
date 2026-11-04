@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
 from django.db import transaction
-from django.http import Http404
+from django.http import Http404, HttpResponseRedirect
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils import timezone
@@ -30,6 +30,14 @@ from .serializers import (
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+def _frontend_confirmation_url(uid, token):
+    """Return the browser confirmation route, including for legacy settings."""
+    configured_url = settings.EMAIL_CONFIRMATION_URL
+    if '/api/auth/confirm-email/' in configured_url:
+        configured_url = 'https://porchlighter.net/confirm-email/{uid}/{token}/'
+    return configured_url.format(uid=uid, token=token)
 
 
 def _request_guest_token(request):
@@ -105,6 +113,11 @@ class ConfirmEmailView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, uidb64, token, *args, **kwargs):
+        accept_header = request.headers.get('Accept', '').lower()
+        browser_request = 'text/html' in accept_header and 'application/json' not in accept_header
+        if browser_request:
+            return HttpResponseRedirect(_frontend_confirmation_url(uidb64, token))
+
         try:
             user_id = force_str(urlsafe_base64_decode(uidb64))
             user = User.objects.get(pk=user_id)

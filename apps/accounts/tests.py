@@ -115,6 +115,41 @@ class AuthAPITests(TestCase):
         self.assertTrue(user.is_active)
         self.assertEqual(self.client.get(url).status_code, status.HTTP_400_BAD_REQUEST)
 
+    @override_settings(EMAIL_CONFIRMATION_URL='https://porchlighter.net/confirm-email/{uid}/{token}/')
+    def test_browser_legacy_confirmation_link_redirects_to_frontend(self):
+        user = User.objects.create_user(email='browser-confirm@example.com', password='Password123!', is_active=False)
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.encoding import force_bytes
+        from django.utils.http import urlsafe_base64_encode
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        url = reverse('accounts:confirm-email', kwargs={'uidb64': uid, 'token': token})
+
+        response = self.client.get(url, HTTP_ACCEPT='text/html')
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response['Location'], f'https://porchlighter.net/confirm-email/{uid}/{token}/')
+        user.refresh_from_db()
+        self.assertFalse(user.is_active)
+
+    @override_settings(EMAIL_CONFIRMATION_URL='https://porchlighter.net/confirm-email/{uid}/{token}/')
+    def test_browser_legacy_confirmation_link_ignores_api_confirmation_setting(self):
+        user = User.objects.create_user(email='legacy-confirm@example.com', password='Password123!', is_active=False)
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.encoding import force_bytes
+        from django.utils.http import urlsafe_base64_encode
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        url = reverse('accounts:confirm-email', kwargs={'uidb64': uid, 'token': token})
+
+        with override_settings(EMAIL_CONFIRMATION_URL='https://porchlighter.net/api/auth/confirm-email/{uid}/{token}/'):
+            response = self.client.get(url, HTTP_ACCEPT='text/html')
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response['Location'], f'https://porchlighter.net/confirm-email/{uid}/{token}/')
+
     def test_login_user_api(self):
         User.objects.create_user(email='login@example.com', password='Password123!')
         payload = {'email': 'login@example.com', 'password': 'Password123!'}
