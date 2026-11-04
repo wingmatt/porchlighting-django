@@ -4,7 +4,7 @@ import os
 # The web server entry point must never load development settings, even if a
 # stale service environment variable is present.
 os.environ['DJANGO_ENV'] = 'production'
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'porchlight_backend.settings')
+os.environ['DJANGO_SETTINGS_MODULE'] = 'porchlight_backend.settings'
 
 from django.core.wsgi import get_wsgi_application
 
